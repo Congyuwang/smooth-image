@@ -118,6 +118,84 @@ for caching the matrix multiplication result of `B * p`.
 - run script: [problem_e.sh](problem_e.sh)
 - script output: [problem_e_output.txt](problem_e_output.txt)
 
+### Analysis
+#### Convergence Speed
+In our three tests, the convergence of the two algorithms
+as shown by the PSNR curves. 
+To reach the same level of PSNR value, the AG algorithm needs to do 
+$730/110=6.64$, $310/50=6.2$, and $1050/180=5.89$ which is roughtly
+about 6 times as many numbers of iteration as the CG algorithms.
+
+<div style="text-align: center">
+  <img src="plots/512_512_pens-analysis.png" alt="512_512_pens" style="width: 400px">
+</div>
+<div style="text-align: center">
+  <img src="plots/1024_1024_bluestreet-analysis.png" alt="1024_1024_bluestreet" style="width: 400px">
+</div>
+<div style="text-align: center">
+  <img src="plots/4096_4096_husky-analysis.png" alt="4096_4096_husky" style="width: 400px">
+</div>
+
+#### Execution Time
+
+The following contain the runtime stats of each algorithms.
+For full result please refer to [problem_e_output](problem_e_output.txt).
+For each of the three tests, the time for each single iteration are roughly the same:
+'CG: 1ms 314us 539ns' vs 'AG: 1ms 303us 333ns',
+'CG: 5ms 601us 767ns' vs 'AG: 7ms 254us 559ns',
+and for bigger pictures:
+'CG: 91ms 232us 69ns' vs 'AG: 88ms 699us 674ns'.
+
+All in all CG shows a much faster convergence speed,
+and uses roughly only 1/6 of time to reach simialar result.
+
+##### 512_512_pens
+```
+++ CG Run Stats ++
+-+-------------------+------------------------+-------------------+
+ | optimization_time | average_iteration_time | total_time        |
+-+-------------------+------------------------+-------------------+
+ | 214ms 270us       | 1ms 314us 539ns        | 316ms 237us 916ns |
+-+-------------------+------------------------+-------------------+
+++ AG Run Stats ++
++----------------------+------------------------+----------------------+
+| optimization_time    | average_iteration_time | total_time           |
++----------------------+------------------------+----------------------+
+| 2s 729ms 181us 666ns | 1ms 303us 333ns        | 2s 797ms 536us 666ns |
++----------------------+------------------------+----------------------+
+```
+
+##### 1024_1024_blue_streets
+```
+++ CG Run Stats ++
++-------------------+------------------------+-------------------+
+| optimization_time | average_iteration_time | total_time        |
++-------------------+------------------------+-------------------+
+| 588ms 185us 541ns | 5ms 601us 767ns        | 895ms 697us 708ns |
++-------------------+------------------------+-------------------+
+++ AG Run Stats ++
++-----------------------+------------------------+--------------------+
+| optimization_time     | average_iteration_time | total_time         |
++-----------------------+------------------------+--------------------+
+| 10s 787ms 531us 125ns | 7ms 254us 559ns        | 11s 85ms 6us 375ns |
++-----------------------+------------------------+--------------------+
+```
+
+##### 4096_4096_husky
+```
+++ CG Run Stats ++
++-----------------------+------------------------+-----------------------+
+| optimization_time     | average_iteration_time | total_time            |
++-----------------------+------------------------+-----------------------+
+| 34s 303ms 258us 416ns | 91ms 232us 69ns        | 39s 221ms 514us 958ns |
++-----------------------+------------------------+-----------------------+
+++ AG Run Stats ++
++------------------------+------------------------+-------------------------+
+| optimization_time      | average_iteration_time | total_time              |
++------------------------+------------------------+-------------------------+
+| 2m 4s 623ms 44us 166ns | 88ms 699us 674ns       | 2m 9s 207ms 445us 500ns |
++------------------------+------------------------+-------------------------+
+```
 ### Output Images
 #### CG Algorithms
 <div style="text-align: center">
