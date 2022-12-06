@@ -34,7 +34,7 @@ fn cg_method_unchecked(
         r.axpy(alpha, &bp, 1.0);
         let r_new_norm_squared = r.norm_squared();
         // return condition
-        if r_new_norm_squared <= tol {
+        if r_new_norm_squared.sqrt() <= tol {
             return (x, iter_count);
         }
         let beta = r_new_norm_squared / r_norm_squared;
