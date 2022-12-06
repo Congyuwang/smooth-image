@@ -65,6 +65,8 @@ pub struct StatsDisplay {
     matrix_generation_time: FormattedDuration,
     optimization_time: FormattedDuration,
     image_write_time: FormattedDuration,
+    average_iteration_time: FormattedDuration,
+    total_time: FormattedDuration,
 }
 
 impl From<RuntimeStats> for StatsDisplay {
@@ -73,12 +75,16 @@ impl From<RuntimeStats> for StatsDisplay {
         let matrix_generation_time = s.matrix_generation_time - s.image_read_time;
         let optimization_time = s.optimization_time - s.matrix_generation_time;
         let image_write_time = s.image_write_time - s.optimization_time;
+        let total_time = s.image_write_time - s.start_time;
+        let average_iteration_time = optimization_time / (s.total_iteration as u32);
         StatsDisplay {
             total_iteration: s.total_iteration,
             image_read_time: humantime::format_duration(image_read_time),
             matrix_generation_time: humantime::format_duration(matrix_generation_time),
             optimization_time: humantime::format_duration(optimization_time),
             image_write_time: humantime::format_duration(image_write_time),
+            average_iteration_time: humantime::format_duration(average_iteration_time),
+            total_time: humantime::format_duration(total_time),
         }
     }
 }
