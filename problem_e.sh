@@ -1,7 +1,7 @@
-alias build='cargo build --release'
-alias run='./target/release/smooth-image'
+build='cargo build --release'
+run='./target/release/smooth-image'
 
-build
+$build
 
 # problem (e)
 
@@ -9,7 +9,7 @@ set -x #echo on
 
 echo Running CG Algorithm
 
-run in-paint \
+$run in-paint \
   -i test/test_images/512_512_pens.png \
   -m test/test_masks/640_640_scratches_02.png \
   -o test/test_outputs/problem-e-pens-cg.png \
@@ -19,7 +19,7 @@ run in-paint \
   --mu 0.01 \
   --metric-step 10
 
-run in-paint \
+$run in-paint \
   -i test/test_images/1024_1024_bluestreet.png \
   -m test/test_masks/512_512_handwriting.png \
   -o test/test_outputs/problem-e-bluestreet-cg.png \
@@ -29,7 +29,7 @@ run in-paint \
   --mu 0.01 \
   --metric-step 10
 
-run in-paint \
+$run in-paint \
   -i test/test_images/4096_4096_husky.jpg \
   -m test/test_masks/512_512_handwriting.png \
   -o test/test_outputs/problem-e-husky-cg.png \
@@ -41,7 +41,7 @@ run in-paint \
 
 echo Running AG Algorithm
 
-run in-paint \
+$run in-paint \
   -i test/test_images/512_512_pens.png \
   -m test/test_masks/640_640_scratches_02.png \
   -o test/test_outputs/problem-e-pens-ag.png \
@@ -51,7 +51,7 @@ run in-paint \
   --mu 0.01 \
   --metric-step 10
 
-run in-paint \
+$run in-paint \
   -i test/test_images/1024_1024_bluestreet.png \
   -m test/test_masks/512_512_handwriting.png \
   -o test/test_outputs/problem-e-bluestreet-ag.png \
@@ -61,12 +61,12 @@ run in-paint \
   --mu 0.01 \
   --metric-step 10
 
-run in-paint \
+$run in-paint \
   -i test/test_images/4096_4096_husky.jpg \
   -m test/test_masks/512_512_handwriting.png \
   -o test/test_outputs/problem-e-husky-ag.png \
   --algo ag \
   --init random \
-  --tol 0.0001 \
+  --tol 0.001 \
   --mu 0.01 \
   --metric-step 10
