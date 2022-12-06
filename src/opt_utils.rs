@@ -14,7 +14,7 @@ pub fn matrix_a(mask: &[u8], img: &[u8]) -> (CsrMatrix<f32>, DVector<f32>) {
         .zip(vector_b.iter_mut())
         .enumerate()
         .for_each(|(select_index, ((px_index, (_, p)), b))| {
-            *b = *p as f32;
+            *b = *p as f32 / 256.0;
             coo.push(select_index, px_index, 1.0f32);
         });
     (CsrMatrix::from(&coo), DVector::from_vec(vector_b))

@@ -78,7 +78,7 @@ where
         .data
         .as_slice()
         .iter()
-        .map(|p| *p as u8)
+        .map(|p| (*p * 256.0) as u8)
         .collect::<Vec<_>>();
     let img = GrayImage::from_vec(width as u32, height as u32, pixels).unwrap();
     write_png(out, &DynamicImage::ImageLuma8(img))?;
@@ -100,7 +100,7 @@ pub fn gen_random_x(width: usize, height: usize, init_type: InitType) -> DVector
     let vec = match init_type {
         InitType::Rand => {
             let small_rng = SmallRng::from_entropy();
-            let uniform = Uniform::<f32>::new(0.0, 256.0);
+            let uniform = Uniform::<f32>::new(0.0, 1.0);
             uniform
                 .sample_iter(small_rng)
                 .take(size)
