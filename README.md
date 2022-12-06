@@ -12,8 +12,10 @@
 - run script: [problem_a.sh](problem_a.sh)
 
 ### Output Images
-![output1](test/test_outputs/problem-a-output-1.png)
-![output2](test/test_outputs/problem-a-output-2.png)
+<div style="text-align: center">
+  <img src="test/test_outputs/problem-a-output-1.png" alt="output1" style="width: 200px">
+  <img src="test/test_outputs/problem-a-output-2.png" alt="output1" style="width: 200px">
+</div>
 
 ## Problem B
 Compute the gradient:
@@ -101,5 +103,32 @@ for caching the matrix multiplication result of `B * p`.
 - file: [src/cg_method.rs](src/cg_method.rs)
 
 ## Problem E
+- files:
+  - matrix generation: [src/opt_utils.rs](src/opt_utils.rs)
+  - inpaint runner: [src/inpaint_worker.rs](src/inpaint_worker.rs)
+- outputs:
+  - CG algorithm
+    - [problem-e-pens-cg.png](test/test_outputs/problem-e-pens-cg.png)
+    - [problem-e-bluestreet-cg.png](test/test_outputs/problem-e-bluestreet-cg.png)
+    - [problem-e-husky-cg.png](test/test_outputs/problem-e-husky-cg.png)
+  - AG algorithms
+    - [problem-e-pens-ag.png](test/test_outputs/problem-e-pens-ag.png)
+    - [problem-e-bluestreet-ag.png](test/test_outputs/problem-e-bluestreet-ag.png)
+    - [problem-e-husky-ag.png](test/test_outputs/problem-e-husky-ag.png)
+- run script: [problem_e.sh](problem_e.sh)
+- script output: [problem_e_output.txt](problem_e_output.txt)
 
-Solve
+### Output Images
+#### CG Algorithms
+<div style="text-align: center">
+  <img src="test/test_outputs/problem-e-pens-cg.png" alt="problem-e-pens-cg.png" style="width: 200px">
+  <img src="test/test_outputs/problem-e-bluestreet-cg.png" alt="problem-e-bluestreet-cg.png" style="width: 200px">
+  <img src="test/test_outputs/problem-e-husky-cg.png" alt="problem-e-husky-cg.png" style="width: 200px">
+</div>
+
+### AG Algorithms
+<div style="text-align: center">
+  <img src="test/test_outputs/problem-e-pens-ag.png" alt="problem-e-pens-ag.png" style="width: 200px">
+  <img src="test/test_outputs/problem-e-bluestreet-ag.png" alt="problem-e-bluestreet-ag.png" style="width: 200px">
+  <img src="test/test_outputs/problem-e-husky-ag.png" alt="problem-e-husky-ag.png" style="width: 200px">
+</div>
