@@ -48,23 +48,45 @@ This proves the $if$ side.
 
 Simplify the algorithm to make it more efficient.
 
-Let $B=A^TA+\mu D^TD$ and $c = A^T b$. Combine $y^{k+1}=x^k+{\beta_k}(x^k-x^{k-1})=(1+\beta_k)x^k-{\beta_k}x^{k-1}$ and
-$x^{k+1}=y^{k+1}-\alpha(By^{k+1}-c)=(I-\alpha B)y^{k+1}+\alpha c$,
-we get: $x^{k+1}=(I-\alpha B)[(1 + \beta_k)x^k - \beta_k x^{k-1}]+\alpha c$.
+Let $B=A^TA+\mu D^TD$ and $c = A^T b$.
+$$
+\begin{align}
+y^{k+1}&=x^k+{\beta_k}(x^k-x^{k-1})=(1+\beta_k)x^k-{\beta_k}x^{k-1}\\
+\nabla f(y^{k+1})&=By^{k+1}-c\\
+x^{k+1}&=y^{k+1}-\alpha\nabla f(y^{k+1})
+\end{align}
+$$
+So the algorithm goes:
 
-That is $x^{k+1}=(1+\beta_k)(I-\alpha B)x^k - \beta_k(I-\alpha B)x^{k-1}+\alpha c$.
+```
+# init containers
+x_old <- x.copy()
+x_tmp <- zero(x.shape)
+y <- zero(x.shape)
 
-Let $Z=I-\alpha B$ and $U=\alpha c$.
+begin loop:
 
-We have $x^{k+1}=(1+\beta_k)Zx^k-\beta_kZx^{k-1}+U$.
+	# x_tmp for memorizing x
+	x_tmp.copy(x)
 
-With regard to the stopping criterion:
+	# x is now y^k+1
+	x <- (1 + beta) * x - beta * x_old
+	y.copy(x)
 
-Let $W=(1+\beta_k)Zx^k$. Now we have
-$\frac{W}{1+\beta_k}=(I-\alpha B)x^k$,
-and therefore $B x^k = [x^k-\frac{W}{1+\beta_k}]/\alpha$.
-Based on which we have
-$\nabla f(x^k)=B x^k-c = [\frac{1}{\alpha}x^k-\frac{1}{\alpha(1+\beta_k)}W] - c$.
+  # x is now Df(y^k+1)
+	x <- B * x - c
+	if (|x| <= tol):
+  	return x_tmp
+  end if
+  
+  # x in now x^k+1
+  x <- y - alpha * x
+
+	# put x_tmp back
+	x_old <- x_tmp
+
+end loop
+```
 
 
 - file: [src/ag_methods.rs](src/ag_method.rs)

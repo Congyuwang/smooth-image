@@ -9,10 +9,6 @@ use nalgebra_sparse::CsrMatrix;
 ///
 /// B_mat = A^T * A + mu * D^T * D
 /// c = A^T * b
-///
-/// Z = I - alpha * B_mat
-///
-/// x = (1 + beta) * Z * x -  beta * Z * x_old + alpha * c
 #[inline(always)]
 fn ag_method_unchecked(
     b_mat: &CsrMatrix<f32>,
@@ -24,33 +20,32 @@ fn ag_method_unchecked(
     // constants
     let l = 1.0 + 8.0 * mu;
     let alpha = 1.0 / l;
-    let z = CsrMatrix::identity(b_mat.nrows()) - alpha * b_mat;
 
     // init
     let mut t = 1.0f32;
     let mut beta = 0.0f32;
-    let mut x_tmp = x.clone();
+    let mut y = DVector::zeros(x.nrows());
+    let mut x_tmp = DVector::zeros(x.nrows());
     let mut x_old = x.clone();
     let mut iter_count = 0;
     loop {
         iter_count += 1;
         // execute the following x = (1 + beta) * z * x - beta * z * x_old + alpha * c;
 
-        // 1. backup x value
+        // 1. x_tmp for memorizing x
         x_tmp.copy_from(&x);
-        // 2. x = (1 + beta) * z * x
-        spmm_csr_dense(0.0, &mut x, 1.0 + beta, NoOp(&z), NoOp(&x_tmp));
-        // 3. ||Df(x)|| compare with tol
-        let mut df = x.clone();
-        df.axpy(1.0 / alpha, &x_tmp, -1.0 / alpha / (1.0 + beta));
-        if df.metric_distance(&c) <= tol {
-            return (x, iter_count);
+        // 2. x is now y^k+1
+        x.axpy(-beta, &x_old, 1.0 + beta);
+        y.copy_from(&x);
+        // 3. x is now Df(y^k+1)
+        spmm_csr_dense(0.0, &mut x, 1.0, NoOp(&b_mat), NoOp(&y));
+        x.axpy(-1.0, &c, 1.0);
+        if x.norm() <= tol {
+            return (y, iter_count);
         }
-        // 4. x -= beta * z * x_old
-        spmm_csr_dense(1.0, &mut x, -beta, NoOp(&z), NoOp(&x_old));
-        // 5. x += alpha * c
-        x.axpy(alpha, &c, 1.0);
-        // 6. update x_old
+        // 4. x in now x^k+1
+        x.axpy(1.0, &y, -alpha);
+        // 5. put x_tmp back
         x_old.copy_from(&x_tmp);
 
         // update beta
