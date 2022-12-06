@@ -22,11 +22,12 @@ fn cg_method_unchecked<CB: FnMut(i32, &DVector<f32>, f32)>(
     // p = -r
     let mut p = -r.clone();
     let mut iter_round = 0;
+    let mut bp = DVector::<f32>::zeros(b_mat.nrows());
     loop {
         // ||r||2
         let r_norm_squared = r.norm_squared();
         // b * p (the only allocation in the loop)
-        let bp = b_mat * &p;
+        spmm_csr_dense(0.0, &mut bp, 1.0, NoOp(b_mat), NoOp(&p));
         // alpha = ||r||2 / (p' * b * p)
         let alpha = r_norm_squared / p.dot(&bp);
         // x = x + alpha * p
