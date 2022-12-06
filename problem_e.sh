@@ -11,7 +11,7 @@ echo Running CG Algorithm
 
 run in-paint \
   -i test/test_images/512_512_pens.png \
-  -m test/test_masks/640_640_scratches_01.png \
+  -m test/test_masks/640_640_scratches_02.png \
   -o test/test_outputs/problem-e-pens-cg.png \
   --algo cg \
   --init zero \
@@ -21,7 +21,7 @@ run in-paint \
 run in-paint \
   -i test/test_images/1024_1024_bluestreet.png \
   -m test/test_masks/512_512_handwriting.png \
-  -o test/test_outputs/problem-e-bluestree-cg.png \
+  -o test/test_outputs/problem-e-bluestreet-cg.png \
   --algo cg \
   --init random \
   --tol 0.0001 \
@@ -40,7 +40,7 @@ echo Running AG Algorithm
 
 run in-paint \
   -i test/test_images/512_512_pens.png \
-  -m test/test_masks/640_640_scratches_01.png \
+  -m test/test_masks/640_640_scratches_02.png \
   -o test/test_outputs/problem-e-pens-ag.png \
   --algo ag \
   --init zero \
@@ -50,7 +50,7 @@ run in-paint \
 run in-paint \
   -i test/test_images/1024_1024_bluestreet.png \
   -m test/test_masks/512_512_handwriting.png \
-  -o test/test_outputs/problem-e-bluestree-ag.png \
+  -o test/test_outputs/problem-e-bluestreet-ag.png \
   --algo ag \
   --init random \
   --tol 0.0001 \
