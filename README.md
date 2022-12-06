@@ -48,7 +48,7 @@ This proves the $if$ side.
 
 Simplify the algorithm to make it more efficient.
 
-Let $B=A^TA+\mu D^TD$ and $c = A^T b$. Combine $y^{k+1}=x^k+(1-\beta_k) x^{k-1}$ and
+Let $B=A^TA+\mu D^TD$ and $c = A^T b$. Combine $y^{k+1}=x^k+{\beta_k}(x^k-x^{k-1})=(1+\beta_k)x^k-{\beta_k}x^{k-1}$ and
 $x^{k+1}=y^{k+1}-\alpha(By^{k+1}-c)=(I-\alpha B)y^{k+1}+\alpha c$,
 we get: $x^{k+1}=(I-\alpha B)[(1 + \beta_k)x^k - \beta_k x^{k-1}]+\alpha c$.
 

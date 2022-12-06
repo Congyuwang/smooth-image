@@ -25,7 +25,7 @@ fn ag_method_unchecked(
     // constants
     let l = 1.0 + 8.0 * mu;
     let alpha = 1.0 / l;
-    let z = CsrMatrix::identity(b_mat.nrows()) - b_mat;
+    let z = CsrMatrix::identity(b_mat.nrows()) - alpha * b_mat;
     c.scale_mut(alpha);
     let u = &c;
 
@@ -41,14 +41,13 @@ fn ag_method_unchecked(
 
         // 1. backup x value
         x_tmp.copy_from(&x);
-        // 2. x += (1 + beta) * z * x
-        spmm_csr_dense(1.0, &mut x, 1.0 + beta, NoOp(&z), NoOp(&x_tmp));
+        // 2. x = (1 + beta) * z * x
+        spmm_csr_dense(0.0, &mut x, 1.0 + beta, NoOp(&z), NoOp(&x_tmp));
         // 3. x -= beta * z * x_old
         spmm_csr_dense(1.0, &mut x, -beta, NoOp(&z), NoOp(&x_old));
         // 4. x += u
         x.axpy(1.0, u, 1.0);
         // 5. compare with tol
-        println!("{}: {}", iter_count, x.metric_distance(&x_old));
         if x.metric_distance(&x_old) <= tol {
             return (x, iter_count);
         }
