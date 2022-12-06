@@ -52,11 +52,20 @@ Let $B=A^TA+\mu D^TD$ and $c = A^T b$. Combine $y^{k+1}=x^k+{\beta_k}(x^k-x^{k-1
 $x^{k+1}=y^{k+1}-\alpha(By^{k+1}-c)=(I-\alpha B)y^{k+1}+\alpha c$,
 we get: $x^{k+1}=(I-\alpha B)[(1 + \beta_k)x^k - \beta_k x^{k-1}]+\alpha c$.
 
-That is $x^{k+1}=(1 + \beta_k)(I-\alpha B)x^k - \beta_k(I-\alpha B)x^{k-1}+\alpha c$.
+That is $x^{k+1}=(1+\beta_k)(I-\alpha B)x^k - \beta_k(I-\alpha B)x^{k-1}+\alpha c$.
 
 Let $Z=I-\alpha B$ and $U=\alpha c$.
 
 We have $x^{k+1}=(1+\beta_k)Zx^k-\beta_kZx^{k-1}+U$.
+
+With regard to the stopping criterion:
+
+Let $W=(1+\beta_k)Zx^k$. Now we have
+$\frac{W}{1+\beta_k}=(I-\alpha B)x^k$,
+and therefore $B x^k = [x^k-\frac{W}{1+\beta_k}]/\alpha$.
+Based on which we have
+$\nabla f(x^k)=B x^k-c = [\frac{1}{\alpha}x^k-\frac{1}{\alpha(1+\beta_k)}W] - c$.
+
 
 - file: [src/ag_methods.rs](src/ag_method.rs)
 
