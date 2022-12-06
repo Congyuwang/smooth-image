@@ -44,7 +44,7 @@ $\nabla^2f$ is positive semi-definite everywhere.
 Thus, $f$ is a convex function, and therefore $\nabla f(x) = 0$
 implies $x$ to be a global minimal.
 
-This proves the $if$ side.
+This proves the *if* side.
 
 ## Problem C
 
