@@ -10,7 +10,7 @@ use nalgebra_sparse::CsrMatrix;
 /// B_mat = A^T * A + mu * D^T * D
 /// c = A^T * b
 #[inline(always)]
-fn ag_method_unchecked<CB: FnMut(i32, &DVector<f32>)>(
+fn ag_method_unchecked<CB: FnMut(i32, &DVector<f32>, f32)>(
     b_mat: &CsrMatrix<f32>,
     c: DVector<f32>,
     mu: f32,
@@ -41,11 +41,12 @@ fn ag_method_unchecked<CB: FnMut(i32, &DVector<f32>)>(
         // 3. x is now Df(y^k+1)
         spmm_csr_dense(0.0, &mut x, 1.0, NoOp(b_mat), NoOp(&y));
         x.axpy(-1.0, &c, 1.0);
+        let grad_norm = x.norm();
         // metric callback
         if metric_step > 0 && iter_round % metric_step == 0 {
-            metric_cb(iter_round, &y);
+            metric_cb(iter_round, &y, grad_norm);
         }
-        if x.norm() <= tol {
+        if grad_norm <= tol {
             return (y, iter_round);
         }
         // 4. x in now x^k+1
@@ -63,7 +64,7 @@ fn ag_method_unchecked<CB: FnMut(i32, &DVector<f32>)>(
     }
 }
 
-pub fn ag_method<CB: FnMut(i32, &DVector<f32>)>(
+pub fn ag_method<CB: FnMut(i32, &DVector<f32>, f32)>(
     b_mat: &CsrMatrix<f32>,
     c: DVector<f32>,
     mu: f32,

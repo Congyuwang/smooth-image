@@ -69,9 +69,9 @@ where
     let (b_mat, c) = prepare_matrix(width, height, img, mask, mu)?;
     let matrix_generation_time = Instant::now();
     let mut metrics = Vec::<(i32, f32)>::new();
-    let metric_cb = |iter_round, inferred: &DVector<f32>| {
+    let metric_cb = |iter_round, inferred: &DVector<f32>, tol_var: f32| {
         let psnr = psnr(inferred, &orig);
-        println!("iter={iter_round}, psnr={psnr}");
+        println!("iter={iter_round}, psnr={psnr}, tol_var={tol_var}");
         metrics.push((iter_round, psnr));
     };
 

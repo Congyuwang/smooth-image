@@ -7,7 +7,7 @@ use nalgebra_sparse::CsrMatrix;
 /// B_mat = A^T * A + mu * D^T * D
 /// c = A^T * b
 #[inline(always)]
-fn cg_method_unchecked<CB: FnMut(i32, &DVector<f32>)>(
+fn cg_method_unchecked<CB: FnMut(i32, &DVector<f32>, f32)>(
     b_mat: &CsrMatrix<f32>,
     mut c: DVector<f32>,
     mut x: DVector<f32>,
@@ -34,12 +34,13 @@ fn cg_method_unchecked<CB: FnMut(i32, &DVector<f32>)>(
         // r = r + alpha * b * p
         r.axpy(alpha, &bp, 1.0);
         let r_new_norm_squared = r.norm_squared();
+        let r_new_norm = r_new_norm_squared.sqrt();
         // metric callback
         if metric_step > 0 && iter_round % metric_step == 0 {
-            metric_cb(iter_round, &x);
+            metric_cb(iter_round, &x, r_new_norm);
         }
         // return condition
-        if r_new_norm_squared.sqrt() <= tol {
+        if r_new_norm <= tol {
             return (x, iter_round);
         }
         let beta = r_new_norm_squared / r_norm_squared;
@@ -51,7 +52,7 @@ fn cg_method_unchecked<CB: FnMut(i32, &DVector<f32>)>(
     }
 }
 
-pub fn cg_method<CB: FnMut(i32, &DVector<f32>)>(
+pub fn cg_method<CB: FnMut(i32, &DVector<f32>, f32)>(
     b_mat: &CsrMatrix<f32>,
     c: DVector<f32>,
     x: DVector<f32>,
