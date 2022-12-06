@@ -16,7 +16,8 @@ run in-paint \
   --algo cg \
   --init zero \
   --tol 0.0001 \
-  --mu 0.01
+  --mu 0.01 \
+  --metric-step 10
 
 run in-paint \
   -i test/test_images/1024_1024_bluestreet.png \
@@ -25,7 +26,8 @@ run in-paint \
   --algo cg \
   --init random \
   --tol 0.0001 \
-  --mu 0.01
+  --mu 0.01 \
+  --metric-step 10
 
 run in-paint \
   -i test/test_images/4096_4096_husky.jpg \
@@ -34,7 +36,8 @@ run in-paint \
   --algo cg \
   --init random \
   --tol 0.0001 \
-  --mu 0.01
+  --mu 0.01 \
+  --metric-step 10
 
 echo Running AG Algorithm
 
@@ -45,7 +48,8 @@ run in-paint \
   --algo ag \
   --init zero \
   --tol 0.0001 \
-  --mu 0.01
+  --mu 0.01 \
+  --metric-step 10
 
 run in-paint \
   -i test/test_images/1024_1024_bluestreet.png \
@@ -54,7 +58,8 @@ run in-paint \
   --algo ag \
   --init random \
   --tol 0.0001 \
-  --mu 0.01
+  --mu 0.01 \
+  --metric-step 10
 
 run in-paint \
   -i test/test_images/4096_4096_husky.jpg \
@@ -63,4 +68,5 @@ run in-paint \
   --algo ag \
   --init random \
   --tol 0.0001 \
-  --mu 0.01
+  --mu 0.01 \
+  --metric-step 10

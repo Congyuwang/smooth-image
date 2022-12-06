@@ -3,7 +3,7 @@ use crate::cg_method::cg_method;
 use crate::error::Error::ErrorMessage;
 use crate::error::Result;
 use crate::io::{read_img, resize_img_mask_to_luma, write_png};
-use crate::opt_utils::{matrix_a, matrix_d};
+use crate::opt_utils::{matrix_a, matrix_d, psnr};
 use image::{DynamicImage, GrayImage};
 use nalgebra::DVector;
 use nalgebra_sparse::ops::serial::{
@@ -37,17 +37,17 @@ pub struct RuntimeStats {
     pub optimization_time: Instant,
     pub image_write_time: Instant,
     pub total_iteration: i32,
+    pub psnr_history: Vec<(i32, f32)>,
 }
 
 /// return the generated GrayImage, and the number of iteration
 pub fn run_inpaint<I, M, O>(
-    image: I,
-    mask: M,
-    out: O,
+    (image, mask, out): (I, M, O),
     algo: OptAlgo,
     mu: f32,
     tol: f32,
     init_type: InitType,
+    metric_step: i32,
 ) -> Result<RuntimeStats>
 where
     I: AsRef<Path> + Debug,
@@ -63,14 +63,21 @@ where
     let img = img.as_raw();
     let mask = mask.as_raw();
     let image_read_time = Instant::now();
+    let orig = DVector::<f32>::from_vec(img.iter().map(|p| *p as f32 / 256.0).collect::<Vec<_>>());
 
     let x = gen_random_x(width, height, init_type);
     let (b_mat, c) = prepare_matrix(width, height, img, mask, mu)?;
     let matrix_generation_time = Instant::now();
+    let mut metrics = Vec::<(i32, f32)>::new();
+    let metric_cb = |iter_round, inferred: &DVector<f32>| {
+        let psnr = psnr(inferred, &orig);
+        println!("iter={iter_round}, psnr={psnr}");
+        metrics.push((iter_round, psnr));
+    };
 
-    let (output, iter_count) = match algo {
-        OptAlgo::Cg => cg_method(&b_mat, c, x, tol)?,
-        OptAlgo::Ag => ag_method(&b_mat, c, mu, x, tol)?,
+    let (output, iter_round) = match algo {
+        OptAlgo::Cg => cg_method(&b_mat, c, x, tol, metric_step, metric_cb)?,
+        OptAlgo::Ag => ag_method(&b_mat, c, mu, x, tol, metric_step, metric_cb)?,
     };
     let optimization_time = Instant::now();
 
@@ -89,7 +96,8 @@ where
         matrix_generation_time,
         optimization_time,
         image_write_time,
-        total_iteration: iter_count,
+        total_iteration: iter_round,
+        psnr_history: metrics,
     };
 
     Ok(runtime_stats)

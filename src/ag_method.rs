@@ -10,12 +10,14 @@ use nalgebra_sparse::CsrMatrix;
 /// B_mat = A^T * A + mu * D^T * D
 /// c = A^T * b
 #[inline(always)]
-fn ag_method_unchecked(
+fn ag_method_unchecked<CB: FnMut(i32, &DVector<f32>)>(
     b_mat: &CsrMatrix<f32>,
     c: DVector<f32>,
     mu: f32,
     mut x: DVector<f32>,
     tol: f32,
+    metric_step: i32,
+    mut metric_cb: CB,
 ) -> (DVector<f32>, i32) {
     // constants
     let l = 1.0 + 8.0 * mu;
@@ -27,9 +29,8 @@ fn ag_method_unchecked(
     let mut y = DVector::zeros(x.nrows());
     let mut x_tmp = DVector::zeros(x.nrows());
     let mut x_old = x.clone();
-    let mut iter_count = 0;
+    let mut iter_round = 0;
     loop {
-        iter_count += 1;
         // execute the following x = (1 + beta) * z * x - beta * z * x_old + alpha * c;
 
         // 1. x_tmp for memorizing x
@@ -38,10 +39,14 @@ fn ag_method_unchecked(
         x.axpy(-beta, &x_old, 1.0 + beta);
         y.copy_from(&x);
         // 3. x is now Df(y^k+1)
-        spmm_csr_dense(0.0, &mut x, 1.0, NoOp(&b_mat), NoOp(&y));
+        spmm_csr_dense(0.0, &mut x, 1.0, NoOp(b_mat), NoOp(&y));
         x.axpy(-1.0, &c, 1.0);
+        // metric callback
+        if metric_step > 0 && iter_round % metric_step == 0 {
+            metric_cb(iter_round, &y);
+        }
         if x.norm() <= tol {
-            return (y, iter_count);
+            return (y, iter_round);
         }
         // 4. x in now x^k+1
         x.axpy(1.0, &y, -alpha);
@@ -52,15 +57,20 @@ fn ag_method_unchecked(
         let t_new = 0.5 + 0.5 * (1.0 + 4.0 * t * t).sqrt();
         beta = (t - 1.0) / t_new;
         t = t_new;
+
+        // inc iter_round
+        iter_round += 1;
     }
 }
 
-pub fn ag_method(
+pub fn ag_method<CB: FnMut(i32, &DVector<f32>)>(
     b_mat: &CsrMatrix<f32>,
     c: DVector<f32>,
     mu: f32,
     x: DVector<f32>,
     tol: f32,
+    metric_step: i32,
+    metric_cb: CB,
 ) -> Result<(DVector<f32>, i32)> {
     if tol <= 0.0 {
         return Err(ErrorMessage(format!("tol must be positive (tol={})", tol)));
@@ -86,5 +96,7 @@ pub fn ag_method(
             b_mat.nrows()
         )));
     }
-    Ok(ag_method_unchecked(b_mat, c, mu, x, tol))
+    Ok(ag_method_unchecked(
+        b_mat, c, mu, x, tol, metric_step, metric_cb,
+    ))
 }

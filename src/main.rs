@@ -56,6 +56,15 @@ struct InPaint {
     tol: f32,
     #[arg(long)]
     mu: f32,
+    /// negative step means no output
+    #[arg(long, default_value_t=10)]
+    metric_step: i32,
+}
+
+#[derive(Tabled)]
+pub struct IterStat {
+    iter_round: i32,
+    psnr: f32,
 }
 
 #[derive(Tabled)]
@@ -118,21 +127,30 @@ fn main() {
                 }
             };
             match run_inpaint(
-                &inpaint.image,
-                &inpaint.mask,
-                &inpaint.output,
+                (&inpaint.image, &inpaint.mask, &inpaint.output),
                 algo,
                 inpaint.mu,
                 inpaint.tol,
                 init,
+                inpaint.metric_step,
             ) {
                 Err(e) => {
                     println!("Error executing inpaint: {:?}", e);
                 }
                 Ok(stats) => {
+                    let metric_table =
+                        Table::new(stats.psnr_history.iter().map(|(i, m)| IterStat {
+                            iter_round: *i,
+                            psnr: *m,
+                        }));
                     let stats = StatsDisplay::from(stats);
                     let stats_table = Table::new(vec![stats]);
-                    println!("{}", stats_table);
+                    println!("++ Run Stats ++");
+                    println!("{stats_table}");
+                    if inpaint.metric_step > 0 {
+                        println!("++ Metric History ++");
+                        println!("{metric_table}");
+                    }
                 }
             }
         }

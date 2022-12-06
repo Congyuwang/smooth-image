@@ -2,6 +2,11 @@ use nalgebra::DVector;
 use nalgebra_sparse::coo::CooMatrix;
 use nalgebra_sparse::CsrMatrix;
 
+pub fn psnr(inferred: &DVector<f32>, original: &DVector<f32>) -> f32 {
+    let dist = inferred.metric_distance(original);
+    (inferred.nrows() as f32 / (dist * dist)).log10()
+}
+
 /// build the selection matrix A, and target vector b
 pub fn matrix_a(mask: &[u8], img: &[u8]) -> (CsrMatrix<f32>, DVector<f32>) {
     let undamaged = mask.iter().map(|m| usize::from(*m != 0)).sum();
