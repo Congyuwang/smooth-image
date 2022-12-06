@@ -1,10 +1,7 @@
 alias build='cargo build --release'
 alias run='./target/release/smooth-image'
 
-if [ ! -f ./target/release/smooth-image ]
-then
-    build
-fi
+build
 
 # problem (e)
 
