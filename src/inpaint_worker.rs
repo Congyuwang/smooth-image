@@ -179,25 +179,16 @@ pub fn prepare_matrix(
         Op::Transpose(&matrix_a),
         Op::NoOp(&vector_b),
     );
-    let (val, idx, jdx) = {
-        let mut vals = Vec::new();
-        let mut idx = Vec::new();
-        let mut jdx = Vec::new();
-        let (pat, v) = b_mat.into_pattern_and_values();
-        for (v, (i, j)) in v
-            .into_iter()
-            .zip(pat.entries())
-            .filter(|(_, (i, j))| i >= j)
-        {
-            vals.push(v);
-            idx.push(i as i64);
-            jdx.push(j as i64);
-        }
-        (vals, idx, jdx)
-    };
     let mut b_mat_accelerate = CscMatrixF32::new(size as u64, size as u64);
     b_mat_accelerate.set_property(Property::LowerSymmetric)?;
-    b_mat_accelerate.insert_entries(&val, &idx, &jdx)?;
+    let (pat, v) = b_mat.into_pattern_and_values();
+    for (v, (i, j)) in v
+        .into_iter()
+        .zip(pat.entries())
+        .filter(|(_, (i, j))| i >= j)
+    {
+        b_mat_accelerate.insert(v, i as i64, j as i64)?;
+    }
     b_mat_accelerate.commit()?;
     Ok((b_mat_accelerate, c))
 }

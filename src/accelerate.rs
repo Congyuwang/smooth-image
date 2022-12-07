@@ -20,6 +20,10 @@ impl CscMatrixF32 {
         unsafe { CscMatrixF32(ffi::sparse_matrix_create_float(rows, cols)) }
     }
 
+    pub fn insert(&mut self, val: f32, i: i64, j: i64) -> Result<()> {
+        unsafe { try_sparse(ffi::sparse_insert_entry_float(self.0, val, i, j)) }
+    }
+
     pub fn set_property(&mut self, name: Property) -> Result<()> {
         unsafe {
             try_sparse(ffi::sparse_set_matrix_property(
@@ -34,22 +38,6 @@ impl CscMatrixF32 {
                     Property::_UpperSymmetric => ffi::sparse_matrix_property_SPARSE_UPPER_SYMMETRIC,
                     Property::LowerSymmetric => ffi::sparse_matrix_property_SPARSE_LOWER_SYMMETRIC,
                 },
-            ))
-        }
-    }
-
-    pub fn insert_entries(&mut self, val: &[f32], indx: &[i64], jndx: &[i64]) -> Result<()> {
-        let n = val.len();
-        if indx.len() != n || jndx.len() != n {
-            return Err(ErrorMessage("entries/index length unequal".to_string()));
-        }
-        unsafe {
-            try_sparse(ffi::sparse_insert_entries_float(
-                self.0,
-                n as u64,
-                val.as_ptr(),
-                indx.as_ptr(),
-                jndx.as_ptr(),
             ))
         }
     }
