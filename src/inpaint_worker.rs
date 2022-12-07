@@ -1,3 +1,4 @@
+use crate::accelerate::{CscMatrixF32, Property};
 use crate::ag_method::ag_method;
 use crate::cg_method::cg_method;
 use crate::error::Error::ErrorMessage;
@@ -128,7 +129,7 @@ pub fn prepare_matrix(
     img: &[u8],
     mask: &[u8],
     mu: f32,
-) -> Result<(CscMatrix<f32>, DVector<f32>)> {
+) -> Result<(CscMatrixF32, DVector<f32>)> {
     let size = width * height;
     if mask.len() != size || img.len() != size {
         return Err(ErrorMessage(
@@ -178,5 +179,25 @@ pub fn prepare_matrix(
         Op::Transpose(&matrix_a),
         Op::NoOp(&vector_b),
     );
-    Ok((b_mat, c))
+    let (val, idx, jdx) = {
+        let mut vals = Vec::new();
+        let mut idx = Vec::new();
+        let mut jdx = Vec::new();
+        let (pat, v) = b_mat.into_pattern_and_values();
+        for (v, (i, j)) in v
+            .into_iter()
+            .zip(pat.entries())
+            .filter(|(_, (i, j))| i >= j)
+        {
+            vals.push(v);
+            idx.push(i as i64);
+            jdx.push(j as i64);
+        }
+        (vals, idx, jdx)
+    };
+    let mut b_mat_accelerate = CscMatrixF32::new(size as u64, size as u64);
+    b_mat_accelerate.set_property(Property::LowerSymmetric)?;
+    b_mat_accelerate.insert_entries(&val, &idx, &jdx)?;
+    b_mat_accelerate.commit()?;
+    Ok((b_mat_accelerate, c))
 }

@@ -4,6 +4,7 @@ use clap::{Args, Parser, Subcommand};
 use humantime::FormattedDuration;
 use tabled::{Table, Tabled};
 
+mod accelerate;
 mod ag_method;
 mod cg_method;
 mod error;

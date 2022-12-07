@@ -1,9 +1,7 @@
-use crate::accelerate::copy_f32;
+use crate::accelerate::{saxpby, saxpy, scopy, snorm, spmv_csc_dense, sset, CscMatrixF32};
 use crate::error::{Error::ErrorMessage, Result};
 use nalgebra::DVector;
-use nalgebra_sparse::ops::serial::spmm_csc_dense;
 use nalgebra_sparse::ops::Op::NoOp;
-use nalgebra_sparse::CscMatrix;
 
 /// f(x) = ||a * x - b ||^2 / 2 + mu / 2 * ||D * x||^2
 /// Df(x) = (A^T * A + mu * D^T * D) * x - A^T * b
@@ -12,14 +10,14 @@ use nalgebra_sparse::CscMatrix;
 /// c = A^T * b
 #[inline(always)]
 fn ag_method_unchecked<CB: FnMut(i32, &DVector<f32>, f32)>(
-    b_mat: &CscMatrix<f32>,
+    b_mat: &CscMatrixF32,
     c: DVector<f32>,
     mu: f32,
     mut x: DVector<f32>,
     tol: f32,
     metric_step: i32,
     mut metric_cb: CB,
-) -> (DVector<f32>, i32) {
+) -> Result<(DVector<f32>, i32)> {
     // constants
     let l = 1.0 + 8.0 * mu;
     let alpha = 1.0 / l;
@@ -35,25 +33,26 @@ fn ag_method_unchecked<CB: FnMut(i32, &DVector<f32>, f32)>(
         // execute the following x = (1 + beta) * z * x - beta * z * x_old + alpha * c;
 
         // 1. x_tmp for memorizing x
-        copy_f32(&x, &mut x_tmp);
+        scopy(&x, &mut x_tmp);
         // 2. x is now y^k+1
-        x.axpy(-beta, &x_old, 1.0 + beta);
-        copy_f32(&x, &mut y);
+        saxpby(-beta, &x_old, 1.0 + beta, &mut x);
+        scopy(&x, &mut y);
         // 3. x is now Df(y^k+1)
-        spmm_csc_dense(0.0, &mut x, 1.0, NoOp(b_mat), NoOp(&y));
-        x.axpy(-1.0, &c, 1.0);
-        let grad_norm = x.norm();
+        sset(0.0, &mut x);
+        spmv_csc_dense(&mut x, 1.0, NoOp(b_mat), &y)?;
+        saxpy(-1.0, &c, &mut x);
+        let grad_norm = snorm(&x);
         // metric callback
         if metric_step > 0 && iter_round % metric_step == 0 {
             metric_cb(iter_round, &y, grad_norm);
         }
         if grad_norm <= tol {
-            return (y, iter_round);
+            return Ok((y, iter_round));
         }
         // 4. x in now x^k+1
-        x.axpy(1.0, &y, -alpha);
+        saxpby(1.0, &y, -alpha, &mut x);
         // 5. put x_tmp back
-        copy_f32(&x_old, &mut x_tmp);
+        scopy(&x_tmp, &mut x_old);
 
         // update beta
         let t_new = 0.5 + 0.5 * (1.0 + 4.0 * t * t).sqrt();
@@ -66,7 +65,7 @@ fn ag_method_unchecked<CB: FnMut(i32, &DVector<f32>, f32)>(
 }
 
 pub fn ag_method<CB: FnMut(i32, &DVector<f32>, f32)>(
-    b_mat: &CscMatrix<f32>,
+    b_mat: &CscMatrixF32,
     c: DVector<f32>,
     mu: f32,
     x: DVector<f32>,
@@ -98,13 +97,6 @@ pub fn ag_method<CB: FnMut(i32, &DVector<f32>, f32)>(
             b_mat.nrows()
         )));
     }
-    Ok(ag_method_unchecked(
-        b_mat,
-        c,
-        mu,
-        x,
-        tol,
-        metric_step,
-        metric_cb,
-    ))
+    let output = ag_method_unchecked(b_mat, c, mu, x, tol, metric_step, metric_cb)?;
+    Ok(output)
 }
