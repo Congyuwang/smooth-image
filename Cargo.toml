@@ -13,6 +13,7 @@ rand = { version = "0.8.5", default-features=false, features=["small_rng", "getr
 tabled = "0.10.0"
 nalgebra-sparse = "0.8.0"
 humantime = "2.1.0"
+accelerate-blas-sys = { path="../../RustProjects/accelerate-blas-sys" }
 
 [profile.release]
 lto = true

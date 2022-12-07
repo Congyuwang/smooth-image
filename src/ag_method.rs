@@ -1,3 +1,4 @@
+use crate::accelerate::copy_f32;
 use crate::error::{Error::ErrorMessage, Result};
 use nalgebra::DVector;
 use nalgebra_sparse::ops::serial::spmm_csc_dense;
@@ -34,10 +35,10 @@ fn ag_method_unchecked<CB: FnMut(i32, &DVector<f32>, f32)>(
         // execute the following x = (1 + beta) * z * x - beta * z * x_old + alpha * c;
 
         // 1. x_tmp for memorizing x
-        x_tmp.copy_from(&x);
+        copy_f32(&x, &mut x_tmp);
         // 2. x is now y^k+1
         x.axpy(-beta, &x_old, 1.0 + beta);
-        y.copy_from(&x);
+        copy_f32(&x, &mut y);
         // 3. x is now Df(y^k+1)
         spmm_csc_dense(0.0, &mut x, 1.0, NoOp(b_mat), NoOp(&y));
         x.axpy(-1.0, &c, 1.0);
@@ -52,7 +53,7 @@ fn ag_method_unchecked<CB: FnMut(i32, &DVector<f32>, f32)>(
         // 4. x in now x^k+1
         x.axpy(1.0, &y, -alpha);
         // 5. put x_tmp back
-        x_old.copy_from(&x_tmp);
+        copy_f32(&x_old, &mut x_tmp);
 
         // update beta
         let t_new = 0.5 + 0.5 * (1.0 + 4.0 * t * t).sqrt();
