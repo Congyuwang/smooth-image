@@ -1,14 +1,14 @@
 use crate::error::Error::ErrorMessage;
 use crate::error::Result;
 use nalgebra::DVector;
-use nalgebra_sparse::ops::{serial::spmm_csr_dense, Op::NoOp};
-use nalgebra_sparse::CsrMatrix;
+use nalgebra_sparse::ops::{serial::spmm_csc_dense, Op::NoOp};
+use nalgebra_sparse::CscMatrix;
 
 /// B_mat = A^T * A + mu * D^T * D
 /// c = A^T * b
 #[inline(always)]
 fn cg_method_unchecked<CB: FnMut(i32, &DVector<f32>, f32)>(
-    b_mat: &CsrMatrix<f32>,
+    b_mat: &CscMatrix<f32>,
     mut c: DVector<f32>,
     mut x: DVector<f32>,
     tol: f32,
@@ -18,7 +18,7 @@ fn cg_method_unchecked<CB: FnMut(i32, &DVector<f32>, f32)>(
     // r = c
     let r = &mut c;
     // r = -r + b * x
-    spmm_csr_dense(-1.0, &mut *r, 1.0, NoOp(b_mat), NoOp(&x));
+    spmm_csc_dense(-1.0, &mut *r, 1.0, NoOp(b_mat), NoOp(&x));
     // p = -r
     let mut p = -r.clone();
     let mut iter_round = 0;
@@ -27,7 +27,7 @@ fn cg_method_unchecked<CB: FnMut(i32, &DVector<f32>, f32)>(
         // ||r||2
         let r_norm_squared = r.norm_squared();
         // b * p (the only allocation in the loop)
-        spmm_csr_dense(0.0, &mut bp, 1.0, NoOp(b_mat), NoOp(&p));
+        spmm_csc_dense(0.0, &mut bp, 1.0, NoOp(b_mat), NoOp(&p));
         // alpha = ||r||2 / (p' * b * p)
         let alpha = r_norm_squared / p.dot(&bp);
         // x = x + alpha * p
@@ -54,7 +54,7 @@ fn cg_method_unchecked<CB: FnMut(i32, &DVector<f32>, f32)>(
 }
 
 pub fn cg_method<CB: FnMut(i32, &DVector<f32>, f32)>(
-    b_mat: &CsrMatrix<f32>,
+    b_mat: &CscMatrix<f32>,
     c: DVector<f32>,
     x: DVector<f32>,
     tol: f32,
