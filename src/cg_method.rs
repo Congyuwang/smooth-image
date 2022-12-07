@@ -85,5 +85,12 @@ pub fn cg_method<CB: FnMut(i32, &DVector<f32>, f32)>(
             b_mat.nrows()
         )));
     }
-    Ok(cg_method_unchecked(b_mat, c, x, tol, metric_step, metric_cb))
+    Ok(cg_method_unchecked(
+        b_mat,
+        c,
+        x,
+        tol,
+        metric_step,
+        metric_cb,
+    ))
 }

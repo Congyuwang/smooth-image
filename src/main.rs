@@ -57,7 +57,7 @@ struct InPaint {
     #[arg(long)]
     mu: f32,
     /// negative step means no output
-    #[arg(long, default_value_t=10)]
+    #[arg(long, default_value_t = 10)]
     metric_step: i32,
 }
 

@@ -99,6 +99,12 @@ pub fn ag_method<CB: FnMut(i32, &DVector<f32>, f32)>(
         )));
     }
     Ok(ag_method_unchecked(
-        b_mat, c, mu, x, tol, metric_step, metric_cb,
+        b_mat,
+        c,
+        mu,
+        x,
+        tol,
+        metric_step,
+        metric_cb,
     ))
 }
