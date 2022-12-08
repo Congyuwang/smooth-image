@@ -24,7 +24,7 @@ $run in-paint \
   -m test/test_masks/512_512_handwriting.png \
   -o test/test_outputs/problem-e-books-cg.png \
   --algo cg \
-  --init random \
+  --init zero \
   --tol 0.0001 \
   --mu 0.01 \
   --metric-step 10
@@ -34,7 +34,7 @@ $run in-paint \
   -m test/test_masks/512_512_handwriting.png \
   -o test/test_outputs/problem-e-husky-cg.png \
   --algo cg \
-  --init random \
+  --init zero \
   --tol 0.0001 \
   --mu 0.01 \
   --metric-step 10
@@ -56,7 +56,7 @@ $run in-paint \
   -m test/test_masks/512_512_handwriting.png \
   -o test/test_outputs/problem-e-books-ag.png \
   --algo ag \
-  --init random \
+  --init zero \
   --tol 0.0001 \
   --mu 0.01 \
   --metric-step 100
@@ -66,7 +66,7 @@ $run in-paint \
   -m test/test_masks/512_512_handwriting.png \
   -o test/test_outputs/problem-e-husky-ag.png \
   --algo ag \
-  --init random \
+  --init zero \
   --tol 0.001 \
   --mu 0.01 \
   --metric-step 100
