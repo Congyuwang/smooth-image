@@ -72,9 +72,6 @@ impl Drop for CsrMatrixF32 {
     }
 }
 
-unsafe impl Send for CsrMatrixF32 {}
-unsafe impl Sync for CsrMatrixF32 {}
-
 ///  c <- c + alpha * op(A) * b.
 pub fn spmv_csr_dense(
     c: &mut DVector<f32>,

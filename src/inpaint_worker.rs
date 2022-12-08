@@ -3,9 +3,9 @@ use crate::ag_method::ag_method;
 use crate::cg_method::cg_method;
 use crate::error::Error::ErrorMessage;
 use crate::error::Result;
-use crate::io::{read_img, resize_img_to_luma_layer, write_png};
+use crate::io::{read_img, resize_img_mask_to_luma, write_png};
 use crate::opt_utils::{matrix_a, matrix_d, psnr};
-use image::{DynamicImage, GrayImage, RgbaImage};
+use image::{DynamicImage, GrayImage};
 use nalgebra::DVector;
 use nalgebra_sparse::ops::serial::{
     spadd_pattern, spmm_csr_dense, spmm_csr_pattern, spmm_csr_prealloc,
@@ -18,17 +18,13 @@ use rand::rngs::SmallRng;
 use rand::SeedableRng;
 use std::fmt::Debug;
 use std::path::Path;
-use std::sync::{Arc, RwLock};
-use std::thread::spawn;
 use std::time::Instant;
 
-#[derive(Copy, Clone)]
 pub enum OptAlgo {
     Cg,
     Ag,
 }
 
-#[derive(Copy, Clone)]
 pub enum InitType {
     Rand,
     Zero,
@@ -62,99 +58,53 @@ where
     let start_time = Instant::now();
     let image = read_img(image)?;
     let mask = read_img(mask)?;
-    let (img, mask) = resize_img_to_luma_layer(image, mask)?;
-    let width = mask.width() as usize;
-    let height = mask.height() as usize;
+    let (img, mask) = resize_img_mask_to_luma(image, mask)?;
+    let width = img.width() as usize;
+    let height = img.height() as usize;
+    let img = img.as_raw();
+    let mask = mask.as_raw();
     let image_read_time = Instant::now();
+    let orig = DVector::<f32>::from_vec(img.iter().map(|p| *p as f32 / 256.0).collect::<Vec<_>>());
 
-    let (b_mat, rgba) = prepare_matrix(width, height, &img, mask.as_raw(), mu)?;
+    let x = gen_random_x(width, height, init_type);
+    let (b_mat, c) = prepare_matrix(width, height, orig.as_slice(), mask, mu)?;
     let matrix_generation_time = Instant::now();
-    let b_mat = Arc::new(RwLock::new(b_mat));
+    let mut metrics = Vec::<(i32, f32)>::new();
+    let metric_cb = |iter_round, inferred: &DVector<f32>, tol_var: f32| {
+        let psnr = psnr(inferred, &orig);
+        println!("iter={iter_round}, psnr={psnr}, tol_var={tol_var}");
+        metrics.push((iter_round, psnr));
+    };
 
-    let handles = rgba
-        .into_iter()
-        .zip(img.into_iter())
-        .map(|(layer, orig)| {
-            let b_mat = b_mat.clone();
-            spawn(move || {
-                let orig = DVector::from_vec(
-                    orig.into_iter()
-                        .map(|p| *p as f32 / 256.0)
-                        .collect::<Vec<_>>(),
-                );
-                let mut metrics = Vec::<(i32, f32)>::new();
-                let metric_cb = |iter_round, inferred: &DVector<f32>, tol_var: f32| {
-                    let psnr = psnr(inferred, &orig);
-                    println!("iter={iter_round}, psnr={psnr}, tol_var={tol_var}");
-                    metrics.push((iter_round, psnr));
-                };
-                let x = gen_random_x(width, height, &init_type);
-                let b_mat_lock = b_mat.read().unwrap();
-                let result = match algo {
-                    OptAlgo::Cg => cg_method(&b_mat_lock, layer, x, tol, metric_step, metric_cb),
-                    OptAlgo::Ag => ag_method(&b_mat_lock, layer, mu, x, tol, metric_step, metric_cb),
-                };
-                (result, metrics)
-            })
-        })
-        .collect::<Vec<_>>();
-    let mut iter_counts = Vec::with_capacity(4);
-    let mut layers = Vec::with_capacity(4);
-    let mut metrics_list = Vec::with_capacity(4);
-    for handle in handles {
-        let (result, metrics) = handle
-            .join()
-            .map_err(|_| ErrorMessage("exection failure".to_string()))?;
-        let (layer, iter) = result?;
-        iter_counts.push(iter);
-        layers.push(layer);
-        metrics_list.push(metrics);
-    }
+    let (output, iter_round) = match algo {
+        OptAlgo::Cg => cg_method(&b_mat, c, x, tol, metric_step, metric_cb)?,
+        OptAlgo::Ag => ag_method(&b_mat, c, mu, x, tol, metric_step, metric_cb)?,
+    };
     let optimization_time = Instant::now();
 
-    let r = layers[0].as_slice();
-    let g = layers[1].as_slice();
-    let b = layers[2].as_slice();
-    let a = layers[3].as_slice();
-
-    let raw_image = r
+    let pixels = output
+        .data
+        .as_slice()
         .iter()
-        .zip(g.iter().zip(b.iter().zip(a.iter())))
-        .flat_map(|(r, (g, (b, a)))| {
-            [
-                (r * 256.0) as u8,
-                (g * 256.0) as u8,
-                (b * 256.0) as u8,
-                (a * 256.0) as u8,
-            ]
-        })
+        .map(|p| (*p * 256.0) as u8)
         .collect::<Vec<_>>();
-
-    let img = RgbaImage::from_raw(width as u32, height as u32, raw_image).unwrap();
-    write_png(out, &DynamicImage::ImageRgba8(img))?;
+    let img = GrayImage::from_vec(width as u32, height as u32, pixels).unwrap();
+    write_png(out, &DynamicImage::ImageLuma8(img))?;
     let image_write_time = Instant::now();
-
-    let longest_round = iter_counts
-        .iter()
-        .enumerate()
-        .max_by(|(_, a), (_, b)| a.cmp(b))
-        .map(|(index, _)| index)
-        .unwrap();
-
     let runtime_stats = RuntimeStats {
         start_time,
         image_read_time,
         matrix_generation_time,
         optimization_time,
         image_write_time,
-        total_iteration: iter_counts[longest_round],
-        psnr_history: metrics_list[longest_round].clone(),
+        total_iteration: iter_round,
+        psnr_history: metrics,
     };
 
     Ok(runtime_stats)
 }
 
-pub fn gen_random_x(width: usize, height: usize, init_type: &InitType) -> DVector<f32> {
+pub fn gen_random_x(width: usize, height: usize, init_type: InitType) -> DVector<f32> {
     let size = width * height;
     let vec = match init_type {
         InitType::Rand => {
@@ -176,17 +126,17 @@ pub fn gen_random_x(width: usize, height: usize, init_type: &InitType) -> DVecto
 pub fn prepare_matrix(
     width: usize,
     height: usize,
-    img: &[GrayImage; 4],
+    orig: &[f32],
     mask: &[u8],
     mu: f32,
-) -> Result<(CsrMatrixF32, [DVector<f32>; 4])> {
+) -> Result<(CsrMatrixF32, DVector<f32>)> {
     let size = width * height;
-    if mask.len() != size {
+    if mask.len() != size || orig.len() != size {
         return Err(ErrorMessage(
             "unmatched lengths detected when executing algo".to_string(),
         ));
     }
-    let (matrix_a, vec_b) = matrix_a(mask, &img);
+    let (matrix_a, vector_b) = matrix_a(mask, orig);
     let matrix_d = matrix_d(width, height);
 
     // compute B with preallocate
@@ -221,41 +171,13 @@ pub fn prepare_matrix(
             e
         )));
     }
-    let [vr, vg, vb, va] = vec_b;
-    let mut r = DVector::zeros(size);
-    let mut g = DVector::zeros(size);
-    let mut b = DVector::zeros(size);
-    let mut a = DVector::zeros(size);
+    let mut c = DVector::zeros(size);
     spmm_csr_dense(
         0.0,
-        &mut r,
+        &mut c,
         1.0,
         Op::Transpose(&matrix_a),
-        Op::NoOp(&DVector::from_vec(vr)),
-    );
-
-    spmm_csr_dense(
-        0.0,
-        &mut g,
-        1.0,
-        Op::Transpose(&matrix_a),
-        Op::NoOp(&DVector::from_vec(vg)),
-    );
-
-    spmm_csr_dense(
-        0.0,
-        &mut b,
-        1.0,
-        Op::Transpose(&matrix_a),
-        Op::NoOp(&DVector::from_vec(vb)),
-    );
-
-    spmm_csr_dense(
-        0.0,
-        &mut a,
-        1.0,
-        Op::Transpose(&matrix_a),
-        Op::NoOp(&DVector::from_vec(va)),
+        Op::NoOp(&vector_b),
     );
 
     let b_mat = {
@@ -269,5 +191,5 @@ pub fn prepare_matrix(
         b_mat_apple
     };
 
-    Ok((b_mat, [r, g, b, a]))
+    Ok((b_mat, c))
 }
