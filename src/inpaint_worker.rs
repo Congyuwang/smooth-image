@@ -179,16 +179,16 @@ pub fn prepare_matrix(
         Op::Transpose(&matrix_a),
         Op::NoOp(&vector_b),
     );
-    let mut b_mat_accelerate = CscMatrixF32::new(size as u64, size as u64);
-    b_mat_accelerate.set_property(Property::LowerSymmetric)?;
-    let (pat, v) = b_mat.into_pattern_and_values();
-    for (v, (i, j)) in v
-        .into_iter()
-        .zip(pat.entries())
-        .filter(|(_, (i, j))| i >= j)
-    {
-        b_mat_accelerate.insert(v, i as i64, j as i64)?;
-    }
-    b_mat_accelerate.commit()?;
-    Ok((b_mat_accelerate, c))
+
+    let b_mat = {
+        let mut b_mat_apple = CscMatrixF32::new(size, size);
+        b_mat_apple.set_property(Property::LowerSymmetric)?;
+        for (j, col) in b_mat.col_iter().enumerate() {
+            b_mat_apple.insert_col(j, col.nnz(), col.values(), col.row_indices())?;
+        }
+        b_mat_apple.commit()?;
+        b_mat_apple
+    };
+
+    Ok((b_mat, c))
 }

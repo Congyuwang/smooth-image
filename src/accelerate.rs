@@ -16,12 +16,8 @@ pub enum Property {
 }
 
 impl CscMatrixF32 {
-    pub fn new(rows: u64, cols: u64) -> Self {
-        unsafe { CscMatrixF32(ffi::sparse_matrix_create_float(rows, cols)) }
-    }
-
-    pub fn insert(&mut self, val: f32, i: i64, j: i64) -> Result<()> {
-        unsafe { try_sparse(ffi::sparse_insert_entry_float(self.0, val, i, j)) }
+    pub fn new(rows: usize, cols: usize) -> Self {
+        unsafe { CscMatrixF32(ffi::sparse_matrix_create_float(rows as u64, cols as u64)) }
     }
 
     pub fn set_property(&mut self, name: Property) -> Result<()> {
@@ -38,6 +34,18 @@ impl CscMatrixF32 {
                     Property::_UpperSymmetric => ffi::sparse_matrix_property_SPARSE_UPPER_SYMMETRIC,
                     Property::LowerSymmetric => ffi::sparse_matrix_property_SPARSE_LOWER_SYMMETRIC,
                 },
+            ))
+        }
+    }
+
+    pub fn insert_col(&mut self, j: usize, nz: usize, val: &[f32], jndx: &[usize]) -> Result<()> {
+        unsafe {
+            try_sparse(ffi::sparse_insert_col_float(
+                self.0,
+                j as i64,
+                nz as u64,
+                val.as_ptr(),
+                jndx.as_ptr() as *const i64,
             ))
         }
     }

@@ -100,6 +100,9 @@ impl From<RuntimeStats> for StatsDisplay {
 }
 
 fn main() {
+    #[cfg(not(target_pointer_width = "64"))]
+    panic!("Does not support non-64 machine");
+
     let task: Tasks = Tasks::parse();
 
     match &task.task {
