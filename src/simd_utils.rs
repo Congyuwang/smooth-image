@@ -1,6 +1,6 @@
 use nalgebra_sparse::CsrMatrix;
 use rayon::join;
-use std::ops::AddAssign;
+use std::ops::{AddAssign, SubAssign};
 use std::simd::{f32x4, StdFloat};
 
 pub const ZERO_F32X4: f32x4 = f32x4::from_array([0.0; 4]);
@@ -199,6 +199,53 @@ pub fn norm_squared(v: &[f32x4]) -> f32x4 {
 #[inline(always)]
 pub fn norm_squared_part(v: &[f32x4]) -> f32x4 {
     v.iter().map(|v| v * v).sum()
+}
+
+#[inline(always)]
+pub fn copy(to: &mut[f32x4], from: &[f32x4]) {
+    let (_, _, _, x0, x1, x2, x3) = split_in_four_mut(to);
+    let (_, _, _, y0, y1, y2, y3) = split_in_four(from);
+    join(
+        || {
+            join(
+                || x0.copy_from_slice(y0),
+                || x1.copy_from_slice(y1),
+            );
+        },
+        || {
+            join(
+                || x2.copy_from_slice(y2),
+                || x3.copy_from_slice(y3),
+            );
+        },
+    );
+}
+
+#[inline(always)]
+pub fn subtract_from(x: &mut[f32x4], c: &[f32x4]) {
+    let (_, _, _, x0, x1, x2, x3) = split_in_four_mut(x);
+    let (_, _, _, y0, y1, y2, y3) = split_in_four(c);
+    join(
+        || {
+            join(
+                || subtract_from_part(x0, y0),
+                || subtract_from_part(x1, y1),
+            );
+        },
+        || {
+            join(
+                || subtract_from_part(x2, y2),
+                || subtract_from_part(x3, y3),
+            );
+        },
+    );
+}
+
+#[inline(always)]
+pub fn subtract_from_part(x: &mut[f32x4], c: &[f32x4]) {
+    x.iter_mut()
+        .zip(c.iter())
+        .for_each(|(x, c)| x.sub_assign(c));
 }
 
 #[inline(always)]

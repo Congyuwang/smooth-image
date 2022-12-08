@@ -1,7 +1,6 @@
 use crate::error::{Error::ErrorMessage, Result};
-use crate::simd_utils::{axpby, norm_squared, spmv_cs_dense, ONE_F32X4, ZERO_F32X4};
+use crate::simd_utils::{axpby, norm_squared, spmv_cs_dense, ONE_F32X4, ZERO_F32X4, subtract_from, copy};
 use nalgebra_sparse::CsrMatrix;
-use std::ops::SubAssign;
 use std::simd::{f32x4, SimdFloat, StdFloat};
 
 /// f(x) = ||a * x - b ||^2 / 2 + mu / 2 * ||D * x||^2
@@ -34,7 +33,7 @@ fn ag_method_unchecked<CB: FnMut(i32, &[f32x4], f32)>(
         // execute the following x = (1 + beta) * z * x - beta * z * x_old + alpha * c;
 
         // 1. x_tmp for memorizing x
-        x_tmp.copy_from_slice(&x);
+        copy(&mut x_tmp, &x);
         // 2. x is now y^k+1
         axpby(
             f32x4::splat(-beta),
@@ -42,12 +41,10 @@ fn ag_method_unchecked<CB: FnMut(i32, &[f32x4], f32)>(
             f32x4::splat(1.0 + beta),
             &mut x,
         );
-        y.copy_from_slice(&x);
+        copy(&mut y, &x);
         // 3. x is now Df(y^k+1)
         spmv_cs_dense(&mut x, ONE_F32X4, b_mat, &y);
-        x.iter_mut()
-            .zip(c.iter())
-            .for_each(|(x, c)| x.sub_assign(c));
+        subtract_from(&mut x, &c);
         let grad_norm = norm_squared(&x).sqrt().reduce_max();
         // metric callback
         if metric_step > 0 && iter_round % metric_step == 0 {
@@ -59,7 +56,7 @@ fn ag_method_unchecked<CB: FnMut(i32, &[f32x4], f32)>(
         // 4. x in now x^k+1
         axpby(ONE_F32X4, &y, f32x4::splat(-alpha), &mut x);
         // 5. put x_tmp back
-        x_old.copy_from_slice(&x_tmp);
+        copy(&mut x_old, &x_tmp);
 
         // update beta
         let t_new = 0.5 + 0.5 * (1.0 + 4.0 * t * t).sqrt();
