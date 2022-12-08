@@ -5,7 +5,7 @@ use crate::error::Error::ErrorMessage;
 use crate::error::Result;
 use crate::io::{read_img, resize_img_to_luma_layer, write_png};
 use crate::opt_utils::{matrix_a, matrix_d, psnr};
-use image::{DynamicImage, GrayImage, RgbaImage};
+use image::{DynamicImage, GrayImage, RgbImage};
 use nalgebra::DVector;
 use nalgebra_sparse::ops::serial::{
     spadd_pattern, spmm_csr_dense, spmm_csr_pattern, spmm_csr_prealloc,
@@ -92,15 +92,17 @@ where
                 let b_mat_lock = b_mat.read().unwrap();
                 let result = match algo {
                     OptAlgo::Cg => cg_method(&b_mat_lock, layer, x, tol, metric_step, metric_cb),
-                    OptAlgo::Ag => ag_method(&b_mat_lock, layer, mu, x, tol, metric_step, metric_cb),
+                    OptAlgo::Ag => {
+                        ag_method(&b_mat_lock, layer, mu, x, tol, metric_step, metric_cb)
+                    }
                 };
                 (result, metrics)
             })
         })
         .collect::<Vec<_>>();
-    let mut iter_counts = Vec::with_capacity(4);
-    let mut layers = Vec::with_capacity(4);
-    let mut metrics_list = Vec::with_capacity(4);
+    let mut iter_counts = Vec::with_capacity(3);
+    let mut layers = Vec::with_capacity(3);
+    let mut metrics_list = Vec::with_capacity(3);
     for handle in handles {
         let (result, metrics) = handle
             .join()
@@ -115,23 +117,15 @@ where
     let r = layers[0].as_slice();
     let g = layers[1].as_slice();
     let b = layers[2].as_slice();
-    let a = layers[3].as_slice();
 
     let raw_image = r
         .iter()
-        .zip(g.iter().zip(b.iter().zip(a.iter())))
-        .flat_map(|(r, (g, (b, a)))| {
-            [
-                (r * 256.0) as u8,
-                (g * 256.0) as u8,
-                (b * 256.0) as u8,
-                (a * 256.0) as u8,
-            ]
-        })
+        .zip(g.iter().zip(b.iter()))
+        .flat_map(|(r, (g, b))| [(r * 256.0) as u8, (g * 256.0) as u8, (b * 256.0) as u8])
         .collect::<Vec<_>>();
 
-    let img = RgbaImage::from_raw(width as u32, height as u32, raw_image).unwrap();
-    write_png(out, &DynamicImage::ImageRgba8(img))?;
+    let img = RgbImage::from_raw(width as u32, height as u32, raw_image).unwrap();
+    write_png(out, &DynamicImage::ImageRgb8(img))?;
     let image_write_time = Instant::now();
 
     let longest_round = iter_counts
@@ -176,10 +170,10 @@ pub fn gen_random_x(width: usize, height: usize, init_type: &InitType) -> DVecto
 pub fn prepare_matrix(
     width: usize,
     height: usize,
-    img: &[GrayImage; 4],
+    img: &[GrayImage; 3],
     mask: &[u8],
     mu: f32,
-) -> Result<(CsrMatrixF32, [DVector<f32>; 4])> {
+) -> Result<(CsrMatrixF32, [DVector<f32>; 3])> {
     let size = width * height;
     if mask.len() != size {
         return Err(ErrorMessage(
@@ -221,11 +215,10 @@ pub fn prepare_matrix(
             e
         )));
     }
-    let [vr, vg, vb, va] = vec_b;
+    let [vr, vg, vb] = vec_b;
     let mut r = DVector::zeros(size);
     let mut g = DVector::zeros(size);
     let mut b = DVector::zeros(size);
-    let mut a = DVector::zeros(size);
     spmm_csr_dense(
         0.0,
         &mut r,
@@ -250,14 +243,6 @@ pub fn prepare_matrix(
         Op::NoOp(&DVector::from_vec(vb)),
     );
 
-    spmm_csr_dense(
-        0.0,
-        &mut a,
-        1.0,
-        Op::Transpose(&matrix_a),
-        Op::NoOp(&DVector::from_vec(va)),
-    );
-
     let b_mat = {
         let mut b_mat_apple = CsrMatrixF32::new(size, size);
         b_mat_apple.set_property(Property::LowerSymmetric)?;
@@ -269,5 +254,5 @@ pub fn prepare_matrix(
         b_mat_apple
     };
 
-    Ok((b_mat, [r, g, b, a]))
+    Ok((b_mat, [r, g, b]))
 }

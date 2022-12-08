@@ -9,42 +9,31 @@ pub fn psnr(inferred: &DVector<f32>, original: &DVector<f32>) -> f32 {
 }
 
 /// build the selection matrix A, and target vector b
-pub fn matrix_a(mask: &[u8], orig: &[GrayImage; 4]) -> (CsrMatrix<f32>, [Vec<f32>; 4]) {
+pub fn matrix_a(mask: &[u8], orig: &[GrayImage; 3]) -> (CsrMatrix<f32>, [Vec<f32>; 3]) {
     let undamaged = mask.iter().map(|m| usize::from(*m != 0)).sum();
     let mut coo = CooMatrix::new(undamaged, mask.len());
     let mut vector_r = vec![0.0f32; undamaged];
     let mut vector_g = vec![0.0f32; undamaged];
     let mut vector_b = vec![0.0f32; undamaged];
-    let mut vector_a = vec![0.0f32; undamaged];
     mask.iter()
-        .zip(
-            orig[0]
-                .iter()
-                .zip(orig[1].iter().zip(orig[2].iter().zip(orig[3].iter()))),
-        )
+        .zip(orig[0].iter().zip(orig[1].iter().zip(orig[2].iter())))
         .enumerate()
         .filter(|(_, (m, _))| **m != 0)
         .zip(
-            vector_r.iter_mut().zip(
-                vector_g
-                    .iter_mut()
-                    .zip(vector_b.iter_mut().zip(vector_a.iter_mut())),
-            ),
+            vector_r
+                .iter_mut()
+                .zip(vector_g.iter_mut().zip(vector_b.iter_mut())),
         )
         .enumerate()
         .for_each(
-            |(select_index, ((px_index, (_, (r, (g, (b, a))))), (vr, (vg, (vb, va)))))| {
+            |(select_index, ((px_index, (_, (r, (g, b)))), (vr, (vg, vb))))| {
                 *vr = *r as f32 / 256.0;
                 *vg = *g as f32 / 256.0;
                 *vb = *b as f32 / 256.0;
-                *va = *a as f32 / 256.0;
                 coo.push(select_index, px_index, 1.0f32);
             },
         );
-    (
-        CsrMatrix::from(&coo),
-        [vector_r, vector_g, vector_b, vector_a],
-    )
+    (CsrMatrix::from(&coo), [vector_r, vector_g, vector_b])
 }
 
 /// build the difference matrix D
