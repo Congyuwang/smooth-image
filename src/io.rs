@@ -1,14 +1,14 @@
 use crate::error::{Error, Result};
 use image::imageops::{grayscale, FilterType};
 use image::io::Reader;
-use image::{DynamicImage, GenericImageView, GrayImage, ImageFormat, Rgb};
+use image::{DynamicImage, GenericImageView, GrayImage, ImageFormat, Rgba};
 use std::fmt::Debug;
 use std::path::Path;
 
 pub fn resize_img_to_luma_layer(
     image: DynamicImage,
     mask: DynamicImage,
-) -> Result<([GrayImage; 3], GrayImage)> {
+) -> Result<([GrayImage; 4], GrayImage)> {
     // compute output dimensions
     let image_dims = image.dimensions();
     let mask_dims = mask.dimensions();
@@ -24,21 +24,24 @@ pub fn resize_img_to_luma_layer(
     let w = image.width();
     let h = image.height();
     let n = (w * h) as usize;
-    let image = image.to_rgb8();
+    let image = image.to_rgba8();
     let mut r = Vec::with_capacity(n);
     let mut g = Vec::with_capacity(n);
     let mut b = Vec::with_capacity(n);
-    image.pixels().for_each(|Rgb(rgba)| {
+    let mut a = Vec::with_capacity(n);
+    image.pixels().for_each(|Rgba(rgba)| {
         r.push(rgba[0]);
         g.push(rgba[1]);
         b.push(rgba[2]);
+        a.push(rgba[3]);
     });
     let r = GrayImage::from_raw(w, h, r).unwrap();
     let g = GrayImage::from_raw(w, h, g).unwrap();
     let b = GrayImage::from_raw(w, h, b).unwrap();
+    let a = GrayImage::from_raw(w, h, a).unwrap();
     let mask = grayscale(&mask);
 
-    Ok(([r, g, b], mask))
+    Ok(([r, g, b, a], mask))
 }
 
 pub fn resize_img_mask_to_luma(
