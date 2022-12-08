@@ -5,8 +5,8 @@ use nalgebra::DVector;
 use nalgebra_sparse::ops::Op;
 use std::ffi::{c_int, c_void};
 
-/// A f32 Csc Matrix
-pub struct CscMatrixF32(ffi::sparse_matrix_float);
+/// A f32 Csr Matrix
+pub struct CsrMatrixF32(ffi::sparse_matrix_float);
 
 pub enum Property {
     _UpperTriangular,
@@ -15,9 +15,9 @@ pub enum Property {
     LowerSymmetric,
 }
 
-impl CscMatrixF32 {
+impl CsrMatrixF32 {
     pub fn new(rows: usize, cols: usize) -> Self {
-        unsafe { CscMatrixF32(ffi::sparse_matrix_create_float(rows as u64, cols as u64)) }
+        unsafe { CsrMatrixF32(ffi::sparse_matrix_create_float(rows as u64, cols as u64)) }
     }
 
     pub fn set_property(&mut self, name: Property) -> Result<()> {
@@ -38,11 +38,11 @@ impl CscMatrixF32 {
         }
     }
 
-    pub fn insert_col(&mut self, j: usize, nz: usize, val: &[f32], jndx: &[usize]) -> Result<()> {
+    pub fn insert_row(&mut self, i: usize, nz: usize, val: &[f32], jndx: &[usize]) -> Result<()> {
         unsafe {
-            try_sparse(ffi::sparse_insert_col_float(
+            try_sparse(ffi::sparse_insert_row_float(
                 self.0,
-                j as i64,
+                i as i64,
                 nz as u64,
                 val.as_ptr(),
                 jndx.as_ptr() as *const i64,
@@ -64,7 +64,7 @@ impl CscMatrixF32 {
     }
 }
 
-impl Drop for CscMatrixF32 {
+impl Drop for CsrMatrixF32 {
     fn drop(&mut self) {
         unsafe {
             ffi::sparse_matrix_destroy(self.0 as *mut c_void);
@@ -73,10 +73,10 @@ impl Drop for CscMatrixF32 {
 }
 
 ///  c <- c + alpha * op(A) * b.
-pub fn spmv_csc_dense(
+pub fn spmv_csr_dense(
     c: &mut DVector<f32>,
     alpha: f32,
-    a: Op<&CscMatrixF32>,
+    a: Op<&CsrMatrixF32>,
     b: &DVector<f32>,
 ) -> Result<()> where
 {

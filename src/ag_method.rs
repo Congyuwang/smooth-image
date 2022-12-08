@@ -1,4 +1,4 @@
-use crate::accelerate::{saxpby, saxpy, scopy, snorm, spmv_csc_dense, sset, CscMatrixF32};
+use crate::accelerate::{saxpby, saxpy, scopy, snorm, spmv_csr_dense, sset, CsrMatrixF32};
 use crate::error::{Error::ErrorMessage, Result};
 use nalgebra::DVector;
 use nalgebra_sparse::ops::Op::NoOp;
@@ -10,7 +10,7 @@ use nalgebra_sparse::ops::Op::NoOp;
 /// c = A^T * b
 #[inline(always)]
 fn ag_method_unchecked<CB: FnMut(i32, &DVector<f32>, f32)>(
-    b_mat: &CscMatrixF32,
+    b_mat: &CsrMatrixF32,
     c: DVector<f32>,
     mu: f32,
     mut x: DVector<f32>,
@@ -39,7 +39,7 @@ fn ag_method_unchecked<CB: FnMut(i32, &DVector<f32>, f32)>(
         scopy(&x, &mut y);
         // 3. x is now Df(y^k+1)
         sset(0.0, &mut x);
-        spmv_csc_dense(&mut x, 1.0, NoOp(b_mat), &y)?;
+        spmv_csr_dense(&mut x, 1.0, NoOp(b_mat), &y)?;
         saxpy(-1.0, &c, &mut x);
         let grad_norm = snorm(&x);
         // metric callback
@@ -65,7 +65,7 @@ fn ag_method_unchecked<CB: FnMut(i32, &DVector<f32>, f32)>(
 }
 
 pub fn ag_method<CB: FnMut(i32, &DVector<f32>, f32)>(
-    b_mat: &CscMatrixF32,
+    b_mat: &CsrMatrixF32,
     c: DVector<f32>,
     mu: f32,
     x: DVector<f32>,

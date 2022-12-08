@@ -1,4 +1,4 @@
-use crate::accelerate::{saxpby, saxpy, sdot, spmv_csc_dense, sset, CscMatrixF32};
+use crate::accelerate::{saxpby, saxpy, sdot, spmv_csr_dense, sset, CsrMatrixF32};
 use crate::error::Error::ErrorMessage;
 use crate::error::Result;
 use nalgebra::DVector;
@@ -8,7 +8,7 @@ use nalgebra_sparse::ops::Op::NoOp;
 /// c = A^T * b
 #[inline(always)]
 fn cg_method_unchecked<CB: FnMut(i32, &DVector<f32>, f32)>(
-    b_mat: &CscMatrixF32,
+    b_mat: &CsrMatrixF32,
     mut c: DVector<f32>,
     mut x: DVector<f32>,
     tol: f32,
@@ -20,7 +20,7 @@ fn cg_method_unchecked<CB: FnMut(i32, &DVector<f32>, f32)>(
     // r = -r
     r.neg_mut();
     // r += b * x
-    spmv_csc_dense(r, 1.0, NoOp(b_mat), &x)?;
+    spmv_csr_dense(r, 1.0, NoOp(b_mat), &x)?;
     // p = -r
     let mut p = -r.clone();
     let mut iter_round = 0;
@@ -31,7 +31,7 @@ fn cg_method_unchecked<CB: FnMut(i32, &DVector<f32>, f32)>(
         // compute b * p
         // bp = 0; bp = b * p
         sset(0.0, &mut bp);
-        spmv_csc_dense(&mut bp, 1.0, NoOp(b_mat), &p)?;
+        spmv_csr_dense(&mut bp, 1.0, NoOp(b_mat), &p)?;
         // alpha = ||r||2 / (p' * b * p)
         let alpha = r_norm_squared / sdot(&p, &bp);
         // x = x + alpha * p
@@ -58,7 +58,7 @@ fn cg_method_unchecked<CB: FnMut(i32, &DVector<f32>, f32)>(
 }
 
 pub fn cg_method<CB: FnMut(i32, &DVector<f32>, f32)>(
-    b_mat: &CscMatrixF32,
+    b_mat: &CsrMatrixF32,
     c: DVector<f32>,
     x: DVector<f32>,
     tol: f32,

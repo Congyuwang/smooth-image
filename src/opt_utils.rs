@@ -1,6 +1,6 @@
 use nalgebra::DVector;
 use nalgebra_sparse::coo::CooMatrix;
-use nalgebra_sparse::CscMatrix;
+use nalgebra_sparse::CsrMatrix;
 
 pub fn psnr(inferred: &DVector<f32>, original: &DVector<f32>) -> f32 {
     let dist = inferred.metric_distance(original);
@@ -8,7 +8,7 @@ pub fn psnr(inferred: &DVector<f32>, original: &DVector<f32>) -> f32 {
 }
 
 /// build the selection matrix A, and target vector b
-pub fn matrix_a(mask: &[u8], img: &[u8]) -> (CscMatrix<f32>, DVector<f32>) {
+pub fn matrix_a(mask: &[u8], img: &[u8]) -> (CsrMatrix<f32>, DVector<f32>) {
     let undamaged = mask.iter().map(|m| usize::from(*m != 0)).sum();
     let mut coo = CooMatrix::new(undamaged, mask.len());
     let mut vector_b = vec![0.0f32; undamaged];
@@ -22,14 +22,14 @@ pub fn matrix_a(mask: &[u8], img: &[u8]) -> (CscMatrix<f32>, DVector<f32>) {
             *b = *p as f32 / 256.0;
             coo.push(select_index, px_index, 1.0f32);
         });
-    (CscMatrix::from(&coo), DVector::from_vec(vector_b))
+    (CsrMatrix::from(&coo), DVector::from_vec(vector_b))
 }
 
 /// build the difference matrix D
 ///
 /// pixel layout:
 /// `row0:[0...width], row1:[0.. width]`
-pub fn matrix_d(width: usize, height: usize) -> CscMatrix<f32> {
+pub fn matrix_d(width: usize, height: usize) -> CsrMatrix<f32> {
     let px = height * width;
     let vertical_entries = px - width;
     let horizontal_entries = px - height;
@@ -87,7 +87,7 @@ pub fn matrix_d(width: usize, height: usize) -> CscMatrix<f32> {
 
     let coo = CooMatrix::try_from_triplets(2 * px, px, row_indices, col_indices, values).unwrap();
 
-    CscMatrix::from(&coo)
+    CsrMatrix::from(&coo)
 }
 
 #[cfg(test)]
