@@ -1,9 +1,28 @@
 use crate::error::{Error, Result};
 use image::imageops::{grayscale, FilterType};
 use image::io::Reader;
-use image::{DynamicImage, GenericImageView, GrayImage, ImageFormat};
+use image::{DynamicImage, GenericImageView, GrayImage, ImageFormat, RgbaImage};
 use std::fmt::Debug;
 use std::path::Path;
+
+pub fn resize_mask_rgba(image: DynamicImage, mask: DynamicImage) -> Result<(RgbaImage, GrayImage)> {
+    // compute output dimensions
+    let image_dims = image.dimensions();
+    let mask_dims = mask.dimensions();
+
+    // resize mask to image size if needed
+    let mask = if image_dims != mask_dims {
+        mask.resize_exact(image.width(), image.height(), FilterType::Nearest)
+    } else {
+        mask
+    };
+
+    // grayscale background
+    let image = image.to_rgba8();
+    let mask = grayscale(&mask);
+
+    Ok((image, mask))
+}
 
 pub fn resize_img_mask_to_luma(
     image: DynamicImage,

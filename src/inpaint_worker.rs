@@ -2,13 +2,11 @@ use crate::ag_method::ag_method;
 use crate::cg_method::cg_method;
 use crate::error::Error::ErrorMessage;
 use crate::error::Result;
-use crate::io::{read_img, resize_img_mask_to_luma, write_png};
+use crate::io::{read_img, resize_mask_rgba, write_png};
 use crate::opt_utils::{matrix_a, matrix_d, psnr};
-use image::{DynamicImage, GrayImage};
-use nalgebra::DVector;
-use nalgebra_sparse::ops::serial::{
-    spadd_pattern, spmm_csr_dense, spmm_csr_pattern, spmm_csr_prealloc,
-};
+use crate::simd_utils::{spmv_cs_dense, ONE_F32X4, ZERO_F32X4};
+use image::{DynamicImage, RgbaImage};
+use nalgebra_sparse::ops::serial::{spadd_pattern, spmm_csr_pattern, spmm_csr_prealloc};
 use nalgebra_sparse::ops::Op;
 use nalgebra_sparse::CsrMatrix;
 use rand::distributions::Distribution;
@@ -17,6 +15,7 @@ use rand::rngs::SmallRng;
 use rand::SeedableRng;
 use std::fmt::Debug;
 use std::path::Path;
+use std::simd::f32x4;
 use std::time::Instant;
 
 pub enum OptAlgo {
@@ -57,19 +56,31 @@ where
     let start_time = Instant::now();
     let image = read_img(image)?;
     let mask = read_img(mask)?;
-    let (img, mask) = resize_img_mask_to_luma(image, mask)?;
+    let (img, mask) = resize_mask_rgba(image, mask)?;
     let width = img.width() as usize;
     let height = img.height() as usize;
     let img = img.as_raw();
     let mask = mask.as_raw();
     let image_read_time = Instant::now();
-    let orig = DVector::<f32>::from_vec(img.iter().map(|p| *p as f32 / 256.0).collect::<Vec<_>>());
+    let (img_px, e) = img.as_chunks::<4>();
+    assert!(e.is_empty());
+    let orig = img_px
+        .iter()
+        .map(|p| {
+            f32x4::from_array([
+                p[0] as f32 / 256.0,
+                p[1] as f32 / 256.0,
+                p[2] as f32 / 256.0,
+                p[3] as f32 / 256.0,
+            ])
+        })
+        .collect::<Vec<_>>();
 
     let x = gen_random_x(width, height, init_type);
-    let (b_mat, c) = prepare_matrix(width, height, img, mask, mu)?;
+    let (b_mat, c) = prepare_matrix(width, height, orig.as_slice(), mask, mu)?;
     let matrix_generation_time = Instant::now();
     let mut metrics = Vec::<(i32, f32)>::new();
-    let metric_cb = |iter_round, inferred: &DVector<f32>, tol_var: f32| {
+    let metric_cb = |iter_round, inferred: &[f32x4], tol_var: f32| {
         let psnr = psnr(inferred, &orig);
         println!("iter={iter_round}, psnr={psnr}, tol_var={tol_var}");
         metrics.push((iter_round, psnr));
@@ -81,14 +92,14 @@ where
     };
     let optimization_time = Instant::now();
 
+    let f256 = f32x4::splat(256.0);
     let pixels = output
-        .data
         .as_slice()
         .iter()
-        .map(|p| (*p * 256.0) as u8)
+        .flat_map(|p| (p * f256).as_array().map(|p| p as u8))
         .collect::<Vec<_>>();
-    let img = GrayImage::from_vec(width as u32, height as u32, pixels).unwrap();
-    write_png(out, &DynamicImage::ImageLuma8(img))?;
+    let img = RgbaImage::from_raw(width as u32, height as u32, pixels).unwrap();
+    write_png(out, &DynamicImage::ImageRgba8(img))?;
     let image_write_time = Instant::now();
     let runtime_stats = RuntimeStats {
         start_time,
@@ -103,39 +114,43 @@ where
     Ok(runtime_stats)
 }
 
-pub fn gen_random_x(width: usize, height: usize, init_type: InitType) -> DVector<f32> {
+pub fn gen_random_x(width: usize, height: usize, init_type: InitType) -> Vec<f32x4> {
     let size = width * height;
-    let vec = match init_type {
+    const PX_SIZE: usize = 4;
+    match init_type {
         InitType::Rand => {
             let small_rng = SmallRng::from_entropy();
             let uniform = Uniform::<f32>::new(0.0, 1.0);
-            uniform
+            let rand_px = uniform
                 .sample_iter(small_rng)
-                .take(size)
-                .collect::<Vec<_>>()
+                .take(size * PX_SIZE)
+                .collect::<Vec<_>>();
+            unsafe { rand_px.as_chunks_unchecked::<PX_SIZE>() }
+                .iter()
+                .map(|p| f32x4::from_array(*p))
+                .collect()
         }
         InitType::Zero => {
-            vec![0.0f32; size]
+            vec![ZERO_F32X4; size]
         }
-    };
-    DVector::from_vec(vec)
+    }
 }
 
 /// compute matrix B and vector c, init y
 pub fn prepare_matrix(
     width: usize,
     height: usize,
-    img: &[u8],
+    orig: &[f32x4],
     mask: &[u8],
     mu: f32,
-) -> Result<(CsrMatrix<f32>, DVector<f32>)> {
+) -> Result<(CsrMatrix<f32>, Vec<f32x4>)> {
     let size = width * height;
-    if mask.len() != size || img.len() != size {
+    if mask.len() != size || orig.len() != size {
         return Err(ErrorMessage(
             "unmatched lengths detected when executing algo".to_string(),
         ));
     }
-    let (matrix_a, vector_b) = matrix_a(mask, img);
+    let (matrix_a, vector_b) = matrix_a(mask, orig);
     let matrix_d = matrix_d(width, height);
 
     // compute B with preallocate
@@ -170,13 +185,7 @@ pub fn prepare_matrix(
             e
         )));
     }
-    let mut c = DVector::zeros(size);
-    spmm_csr_dense(
-        0.0,
-        &mut c,
-        1.0,
-        Op::Transpose(&matrix_a),
-        Op::NoOp(&vector_b),
-    );
+    let mut c = vec![ZERO_F32X4; size];
+    spmv_cs_dense(&mut c, ONE_F32X4, &matrix_a.transpose(), &vector_b);
     Ok((b_mat, c))
 }

@@ -1,17 +1,25 @@
-use nalgebra::DVector;
 use nalgebra_sparse::coo::CooMatrix;
 use nalgebra_sparse::CsrMatrix;
+use std::simd::{f32x4, SimdFloat};
 
-pub fn psnr(inferred: &DVector<f32>, original: &DVector<f32>) -> f32 {
-    let dist = inferred.metric_distance(original);
-    (inferred.nrows() as f32 / (dist * dist)).log10()
+pub fn psnr(inferred: &[f32x4], original: &[f32x4]) -> f32 {
+    let norm_sq = inferred
+        .iter()
+        .zip(original.iter())
+        .map(|(i, o)| {
+            let diff = i - o;
+            let diff_sq = diff * diff;
+            diff_sq.reduce_sum()
+        })
+        .sum::<f32>();
+    ((inferred.len() * 4) as f32 / norm_sq).log10()
 }
 
 /// build the selection matrix A, and target vector b
-pub fn matrix_a(mask: &[u8], img: &[u8]) -> (CsrMatrix<f32>, DVector<f32>) {
+pub fn matrix_a(mask: &[u8], img: &[f32x4]) -> (CsrMatrix<f32>, Vec<f32x4>) {
     let undamaged = mask.iter().map(|m| usize::from(*m != 0)).sum();
     let mut coo = CooMatrix::new(undamaged, mask.len());
-    let mut vector_b = vec![0.0f32; undamaged];
+    let mut vector_b = vec![f32x4::from([0.0, 0.0, 0.0, 0.0]); undamaged];
     mask.iter()
         .zip(img.iter())
         .enumerate()
@@ -19,10 +27,10 @@ pub fn matrix_a(mask: &[u8], img: &[u8]) -> (CsrMatrix<f32>, DVector<f32>) {
         .zip(vector_b.iter_mut())
         .enumerate()
         .for_each(|(select_index, ((px_index, (_, p)), b))| {
-            *b = *p as f32 / 256.0;
+            *b = *p;
             coo.push(select_index, px_index, 1.0f32);
         });
-    (CsrMatrix::from(&coo), DVector::from_vec(vector_b))
+    (CsrMatrix::from(&coo), vector_b)
 }
 
 /// build the difference matrix D

@@ -1,8 +1,8 @@
 use crate::error::{Error::ErrorMessage, Result};
-use nalgebra::DVector;
-use nalgebra_sparse::ops::serial::spmm_csr_dense;
-use nalgebra_sparse::ops::Op::NoOp;
+use crate::simd_utils::{axpby, norm_squared, spmv_cs_dense, ONE_F32X4, ZERO_F32X4};
 use nalgebra_sparse::CsrMatrix;
+use std::ops::SubAssign;
+use std::simd::{f32x4, SimdFloat, StdFloat};
 
 /// f(x) = ||a * x - b ||^2 / 2 + mu / 2 * ||D * x||^2
 /// Df(x) = (A^T * A + mu * D^T * D) * x - A^T * b
@@ -10,15 +10,15 @@ use nalgebra_sparse::CsrMatrix;
 /// B_mat = A^T * A + mu * D^T * D
 /// c = A^T * b
 #[inline(always)]
-fn ag_method_unchecked<CB: FnMut(i32, &DVector<f32>, f32)>(
+fn ag_method_unchecked<CB: FnMut(i32, &[f32x4], f32)>(
     b_mat: &CsrMatrix<f32>,
-    c: DVector<f32>,
+    c: Vec<f32x4>,
     mu: f32,
-    mut x: DVector<f32>,
+    mut x: Vec<f32x4>,
     tol: f32,
     metric_step: i32,
     mut metric_cb: CB,
-) -> (DVector<f32>, i32) {
+) -> (Vec<f32x4>, i32) {
     // constants
     let l = 1.0 + 8.0 * mu;
     let alpha = 1.0 / l;
@@ -26,22 +26,29 @@ fn ag_method_unchecked<CB: FnMut(i32, &DVector<f32>, f32)>(
     // init
     let mut t = 1.0f32;
     let mut beta = 0.0f32;
-    let mut y = DVector::zeros(x.nrows());
-    let mut x_tmp = DVector::zeros(x.nrows());
+    let mut y = vec![ZERO_F32X4; x.len()];
+    let mut x_tmp = vec![ZERO_F32X4; x.len()];
     let mut x_old = x.clone();
     let mut iter_round = 0;
     loop {
         // execute the following x = (1 + beta) * z * x - beta * z * x_old + alpha * c;
 
         // 1. x_tmp for memorizing x
-        x_tmp.copy_from(&x);
+        x_tmp.copy_from_slice(&x);
         // 2. x is now y^k+1
-        x.axpy(-beta, &x_old, 1.0 + beta);
-        y.copy_from(&x);
+        axpby(
+            f32x4::splat(-beta),
+            &x_old,
+            f32x4::splat(1.0 + beta),
+            &mut x,
+        );
+        y.copy_from_slice(&x);
         // 3. x is now Df(y^k+1)
-        spmm_csr_dense(0.0, &mut x, 1.0, NoOp(b_mat), NoOp(&y));
-        x.axpy(-1.0, &c, 1.0);
-        let grad_norm = x.norm();
+        spmv_cs_dense(&mut x, ONE_F32X4, b_mat, &y);
+        x.iter_mut()
+            .zip(c.iter())
+            .for_each(|(x, c)| x.sub_assign(c));
+        let grad_norm = norm_squared(&x).sqrt().reduce_max();
         // metric callback
         if metric_step > 0 && iter_round % metric_step == 0 {
             metric_cb(iter_round, &y, grad_norm);
@@ -50,9 +57,9 @@ fn ag_method_unchecked<CB: FnMut(i32, &DVector<f32>, f32)>(
             return (y, iter_round);
         }
         // 4. x in now x^k+1
-        x.axpy(1.0, &y, -alpha);
+        axpby(ONE_F32X4, &y, f32x4::splat(-alpha), &mut x);
         // 5. put x_tmp back
-        x_old.copy_from(&x_tmp);
+        x_old.copy_from_slice(&x_tmp);
 
         // update beta
         let t_new = 0.5 + 0.5 * (1.0 + 4.0 * t * t).sqrt();
@@ -64,40 +71,46 @@ fn ag_method_unchecked<CB: FnMut(i32, &DVector<f32>, f32)>(
     }
 }
 
-pub fn ag_method<CB: FnMut(i32, &DVector<f32>, f32)>(
+pub fn ag_method<CB: FnMut(i32, &[f32x4], f32)>(
     b_mat: &CsrMatrix<f32>,
-    c: DVector<f32>,
+    c: Vec<f32x4>,
     mu: f32,
-    x: DVector<f32>,
+    x: Vec<f32x4>,
     tol: f32,
     metric_step: i32,
     metric_cb: CB,
-) -> Result<(DVector<f32>, i32)> {
+) -> Result<(Vec<f32x4>, i32)> {
     if tol <= 0.0 {
         return Err(ErrorMessage(format!("tol must be positive (tol={})", tol)));
     }
     if b_mat.ncols() != b_mat.nrows() {
         return Err(ErrorMessage(format!(
             "B should be square. #B.rows: {} != #B.cols: {}",
-            x.nrows(),
+            x.len(),
             b_mat.ncols()
         )));
     }
-    if x.nrows() != b_mat.ncols() {
+    if x.len() != b_mat.ncols() {
         return Err(ErrorMessage(format!(
             "#x.rows={} should equal to #B.cols={}",
-            x.nrows(),
+            x.len(),
             b_mat.ncols()
         )));
     }
-    if c.nrows() != b_mat.nrows() {
+    if c.len() != b_mat.nrows() {
         return Err(ErrorMessage(format!(
             "#c.rows={} should equal to #B.rows={}",
-            c.nrows(),
+            c.len(),
             b_mat.nrows()
         )));
     }
     Ok(ag_method_unchecked(
-        b_mat, c, mu, x, tol, metric_step, metric_cb,
+        b_mat,
+        c,
+        mu,
+        x,
+        tol,
+        metric_step,
+        metric_cb,
     ))
 }
