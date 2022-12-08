@@ -190,14 +190,14 @@ and uses roughly only 1/6 of time to reach simialar result.
 ### Output Images
 #### CG Algorithms
 <div style="text-align: center">
-  <img src="test/test_outputs/problem-e-bluestreet-cg.png" alt="problem-e-bluestreet-cg.png" style="width: 200px">
-  <img src="test/test_outputs/problem-e-pens-cg.png" alt="problem-e-pens-cg.png" style="width: 200px">
+  <img src="test/test_outputs/problem-e-books-cg.png" alt="problem-e-books-cg.png" style="width: 200px">
+  <img src="test/test_outputs/problem-e-stars-cg.png" alt="problem-e-stars-cg.png" style="width: 200px">
   <img src="test/test_outputs/problem-e-husky-cg.png" alt="problem-e-husky-cg.png" style="width: 200px">
 </div>
 
 ### AG Algorithms
 <div style="text-align: center">
-  <img src="test/test_outputs/problem-e-bluestreet-ag.png" alt="problem-e-bluestreet-ag.png" style="width: 200px">
-  <img src="test/test_outputs/problem-e-pens-ag.png" alt="problem-e-pens-ag.png" style="width: 200px">
+  <img src="test/test_outputs/problem-e-books-ag.png" alt="problem-e-books-ag.png" style="width: 200px">
+  <img src="test/test_outputs/problem-e-stars-ag.png" alt="problem-e-stars-ag.png" style="width: 200px">
   <img src="test/test_outputs/problem-e-husky-ag.png" alt="problem-e-husky-ag.png" style="width: 200px">
 </div>
