@@ -7,10 +7,10 @@ use crate::opt_utils::{matrix_a, matrix_d, psnr};
 use image::{DynamicImage, GrayImage};
 use nalgebra::DVector;
 use nalgebra_sparse::ops::serial::{
-    spadd_pattern, spmm_csc_dense, spmm_csc_pattern, spmm_csc_prealloc,
+    spadd_pattern, spmm_csr_dense, spmm_csr_pattern, spmm_csr_prealloc,
 };
 use nalgebra_sparse::ops::Op;
-use nalgebra_sparse::CscMatrix;
+use nalgebra_sparse::CsrMatrix;
 use rand::distributions::Distribution;
 use rand::distributions::Uniform;
 use rand::rngs::SmallRng;
@@ -128,7 +128,7 @@ pub fn prepare_matrix(
     img: &[u8],
     mask: &[u8],
     mu: f32,
-) -> Result<(CscMatrix<f32>, DVector<f32>)> {
+) -> Result<(CsrMatrix<f32>, DVector<f32>)> {
     let size = width * height;
     if mask.len() != size || img.len() != size {
         return Err(ErrorMessage(
@@ -139,13 +139,13 @@ pub fn prepare_matrix(
     let matrix_d = matrix_d(width, height);
 
     // compute B with preallocate
-    let pattern_ata = spmm_csc_pattern(&matrix_a.pattern().transpose(), matrix_a.pattern());
-    let pattern_dtd = spmm_csc_pattern(&matrix_d.pattern().transpose(), matrix_d.pattern());
+    let pattern_ata = spmm_csr_pattern(&matrix_a.pattern().transpose(), matrix_a.pattern());
+    let pattern_dtd = spmm_csr_pattern(&matrix_d.pattern().transpose(), matrix_d.pattern());
     let pattern = spadd_pattern(&pattern_ata, &pattern_dtd);
     let nnz = pattern.nnz();
-    let mut b_mat = CscMatrix::try_from_pattern_and_values(pattern, vec![0.0f32; nnz]).unwrap();
+    let mut b_mat = CsrMatrix::try_from_pattern_and_values(pattern, vec![0.0f32; nnz]).unwrap();
     // B += A^t * A
-    if let Err(e) = spmm_csc_prealloc(
+    if let Err(e) = spmm_csr_prealloc(
         0.,
         &mut b_mat,
         1.,
@@ -158,7 +158,7 @@ pub fn prepare_matrix(
         )));
     }
     // B += mu * D^T * D
-    if let Err(e) = spmm_csc_prealloc(
+    if let Err(e) = spmm_csr_prealloc(
         1.,
         &mut b_mat,
         mu,
@@ -171,7 +171,7 @@ pub fn prepare_matrix(
         )));
     }
     let mut c = DVector::zeros(size);
-    spmm_csc_dense(
+    spmm_csr_dense(
         0.0,
         &mut c,
         1.0,

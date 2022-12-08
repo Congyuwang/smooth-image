@@ -1,8 +1,8 @@
 use crate::error::{Error::ErrorMessage, Result};
 use nalgebra::DVector;
-use nalgebra_sparse::ops::serial::spmm_csc_dense;
+use nalgebra_sparse::ops::serial::spmm_csr_dense;
 use nalgebra_sparse::ops::Op::NoOp;
-use nalgebra_sparse::CscMatrix;
+use nalgebra_sparse::CsrMatrix;
 
 /// f(x) = ||a * x - b ||^2 / 2 + mu / 2 * ||D * x||^2
 /// Df(x) = (A^T * A + mu * D^T * D) * x - A^T * b
@@ -11,7 +11,7 @@ use nalgebra_sparse::CscMatrix;
 /// c = A^T * b
 #[inline(always)]
 fn ag_method_unchecked<CB: FnMut(i32, &DVector<f32>, f32)>(
-    b_mat: &CscMatrix<f32>,
+    b_mat: &CsrMatrix<f32>,
     c: DVector<f32>,
     mu: f32,
     mut x: DVector<f32>,
@@ -39,7 +39,7 @@ fn ag_method_unchecked<CB: FnMut(i32, &DVector<f32>, f32)>(
         x.axpy(-beta, &x_old, 1.0 + beta);
         y.copy_from(&x);
         // 3. x is now Df(y^k+1)
-        spmm_csc_dense(0.0, &mut x, 1.0, NoOp(b_mat), NoOp(&y));
+        spmm_csr_dense(0.0, &mut x, 1.0, NoOp(b_mat), NoOp(&y));
         x.axpy(-1.0, &c, 1.0);
         let grad_norm = x.norm();
         // metric callback
@@ -65,7 +65,7 @@ fn ag_method_unchecked<CB: FnMut(i32, &DVector<f32>, f32)>(
 }
 
 pub fn ag_method<CB: FnMut(i32, &DVector<f32>, f32)>(
-    b_mat: &CscMatrix<f32>,
+    b_mat: &CsrMatrix<f32>,
     c: DVector<f32>,
     mu: f32,
     x: DVector<f32>,
