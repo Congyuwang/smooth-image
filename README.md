@@ -106,14 +106,23 @@ for caching the matrix multiplication result of `B * p`.
 - files:
   - matrix generation: [src/opt_utils.rs](src/opt_utils.rs)
   - inpaint runner: [src/inpaint_worker.rs](src/inpaint_worker.rs)
+- outputs:
+  - CG algorithm
+    - [problem-e-pens-cg.png](test/test_outputs/problem-e-pens-cg.png)
+    - [problem-e-bluestreet-cg.png](test/test_outputs/problem-e-bluestreet-cg.png)
+    - [problem-e-husky-cg.png](test/test_outputs/problem-e-husky-cg.png)
+  - AG algorithms
+    - [problem-e-pens-ag.png](test/test_outputs/problem-e-pens-ag.png)
+    - [problem-e-bluestreet-ag.png](test/test_outputs/problem-e-bluestreet-ag.png)
+    - [problem-e-husky-ag.png](test/test_outputs/problem-e-husky-ag.png)
 - run script: [problem_e.sh](problem_e.sh)
 - script output: [problem_e_output.txt](problem_e_output.txt)
 
 ### Analysis
 #### Convergence Speed
 In our three tests, the convergence of the two algorithms
-as shown by the PSNR curves.
-To reach the same level of PSNR value, the AG algorithm needs to do
+as shown by the PSNR curves. 
+To reach the same level of PSNR value, the AG algorithm needs to do 
 $730/110=6.64$, $310/50=6.2$, and $1050/180=5.89$ which is roughtly
 about 6 times as many numbers of iteration as the CG algorithms.
 
@@ -190,14 +199,14 @@ and uses roughly only 1/6 of time to reach simialar result.
 ### Output Images
 #### CG Algorithms
 <div style="text-align: center">
-  <img src="test/test_outputs/problem-e-books-cg.png" alt="problem-e-books-cg.png" style="width: 200px">
-  <img src="test/test_outputs/problem-e-stars-cg.png" alt="problem-e-stars-cg.png" style="width: 200px">
+  <img src="test/test_outputs/problem-e-pens-cg.png" alt="problem-e-pens-cg.png" style="width: 200px">
+  <img src="test/test_outputs/problem-e-bluestreet-cg.png" alt="problem-e-bluestreet-cg.png" style="width: 200px">
   <img src="test/test_outputs/problem-e-husky-cg.png" alt="problem-e-husky-cg.png" style="width: 200px">
 </div>
 
 ### AG Algorithms
 <div style="text-align: center">
-  <img src="test/test_outputs/problem-e-books-ag.png" alt="problem-e-books-ag.png" style="width: 200px">
-  <img src="test/test_outputs/problem-e-stars-ag.png" alt="problem-e-stars-ag.png" style="width: 200px">
+  <img src="test/test_outputs/problem-e-pens-ag.png" alt="problem-e-pens-ag.png" style="width: 200px">
+  <img src="test/test_outputs/problem-e-bluestreet-ag.png" alt="problem-e-bluestreet-ag.png" style="width: 200px">
   <img src="test/test_outputs/problem-e-husky-ag.png" alt="problem-e-husky-ag.png" style="width: 200px">
 </div>
