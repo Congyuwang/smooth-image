@@ -1,7 +1,7 @@
 build='cargo build --release'
 run='./target/release/smooth-image'
 
-$build
+$build || exit
 
 # problem (a)
 $run mask-image \
