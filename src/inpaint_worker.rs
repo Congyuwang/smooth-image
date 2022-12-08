@@ -67,7 +67,7 @@ where
     let orig = DVector::<f32>::from_vec(img.iter().map(|p| *p as f32 / 256.0).collect::<Vec<_>>());
 
     let x = gen_random_x(width, height, init_type);
-    let (b_mat, c) = prepare_matrix(width, height, img, mask, mu)?;
+    let (b_mat, c) = prepare_matrix(width, height, orig.as_slice(), mask, mu)?;
     let matrix_generation_time = Instant::now();
     let mut metrics = Vec::<(i32, f32)>::new();
     let metric_cb = |iter_round, inferred: &DVector<f32>, tol_var: f32| {
@@ -126,17 +126,17 @@ pub fn gen_random_x(width: usize, height: usize, init_type: InitType) -> DVector
 pub fn prepare_matrix(
     width: usize,
     height: usize,
-    img: &[u8],
+    orig: &[f32],
     mask: &[u8],
     mu: f32,
 ) -> Result<(CsrMatrixF32, DVector<f32>)> {
     let size = width * height;
-    if mask.len() != size || img.len() != size {
+    if mask.len() != size || orig.len() != size {
         return Err(ErrorMessage(
             "unmatched lengths detected when executing algo".to_string(),
         ));
     }
-    let (matrix_a, vector_b) = matrix_a(mask, img);
+    let (matrix_a, vector_b) = matrix_a(mask, orig);
     let matrix_d = matrix_d(width, height);
 
     // compute B with preallocate
