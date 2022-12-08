@@ -5,6 +5,7 @@ version = 3
 [[package]]
 name = "accelerate-blas-sys"
 version = "0.1.0"
+source = "git+https://github.com/Congyuwang/accelerate-blas-sys?tag=v0.1.0#51a61fd9432505ba33cca3046f45fa799a765a53"
 dependencies = [
  "bindgen",
 ]
