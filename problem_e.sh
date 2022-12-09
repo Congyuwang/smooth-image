@@ -70,4 +70,4 @@ $run in-paint \
   --tol 0.001 \
   --mu 0.01 \
   --metric-step 100 \
-  --color false
+  --mono

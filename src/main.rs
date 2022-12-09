@@ -64,9 +64,9 @@ struct InPaint {
     /// negative step means no output
     #[arg(long, default_value_t = 10)]
     metric_step: i32,
-    /// enable support for color image
-    #[arg(long, default_value_t = true)]
-    color: bool
+    /// produces mono-color-image
+    #[arg(long, default_value_t = false)]
+    mono: bool
 }
 
 #[derive(Tabled)]
@@ -141,7 +141,7 @@ fn main() {
                 inpaint.tol,
                 init,
                 inpaint.metric_step,
-                inpaint.color
+                !inpaint.mono
             ) {
                 Err(e) => {
                     println!("Error executing inpaint: {e:?}");
