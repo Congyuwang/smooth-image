@@ -262,7 +262,7 @@ pub fn neg(x: &mut [f32]) {
     }
 }
 
-pub fn clone(x: &mut [f32], c: &[f32]) {
+pub fn copy_simd(x: &mut [f32], c: &[f32]) {
     let mut ind = 0usize;
     let (x0, x_sim, x1) = x.as_simd_mut::<LANE>();
     unsafe {
