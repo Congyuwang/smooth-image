@@ -1,3 +1,6 @@
+#![feature(portable_simd)]
+#![feature(get_many_mut)]
+
 use crate::inpaint_worker::{run_inpaint, InitType, OptAlgo, RuntimeStats};
 use crate::mask_painter::produce_gray_mask_image;
 use clap::{Args, Parser, Subcommand};
@@ -11,6 +14,7 @@ mod inpaint_worker;
 mod io;
 mod mask_painter;
 mod opt_utils;
+mod simd;
 
 #[derive(Parser)]
 #[command(name = "Assignment4")]
@@ -57,7 +61,7 @@ struct InPaint {
     #[arg(long)]
     mu: f32,
     /// negative step means no output
-    #[arg(long, default_value_t=10)]
+    #[arg(long, default_value_t = 10)]
     metric_step: i32,
 }
 
