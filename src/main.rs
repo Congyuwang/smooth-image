@@ -10,6 +10,7 @@ use tabled::{Table, Tabled};
 mod ag_method;
 mod cg_method;
 mod error;
+mod image_format;
 mod inpaint_worker;
 mod io;
 mod mask_painter;

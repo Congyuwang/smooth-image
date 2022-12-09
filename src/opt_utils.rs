@@ -1,5 +1,5 @@
+use crate::image_format::Mask;
 use crate::simd::metric_distance_squared;
-use nalgebra::DVector;
 use nalgebra_sparse::coo::CooMatrix;
 use nalgebra_sparse::CsrMatrix;
 
@@ -8,22 +8,18 @@ pub fn psnr(inferred: &[f32], original: &[f32]) -> f32 {
     (inferred.len() as f32 / norm_sq).log10()
 }
 
-/// build the selection matrix A, and target vector b
-pub fn matrix_a(mask: &[u8], orig: &[f32]) -> (CsrMatrix<f32>, DVector<f32>) {
-    let undamaged = mask.iter().map(|m| usize::from(*m != 0)).sum();
-    let mut coo = CooMatrix::new(undamaged, mask.len());
-    let mut vector_b = vec![0.0f32; undamaged];
-    mask.iter()
-        .zip(orig.iter())
+/// build the selection matrix A
+pub fn matrix_a(mask: &Mask) -> CsrMatrix<f32> {
+    let mut coo = CooMatrix::new(mask.nnz, mask.mask.len());
+    mask.mask
+        .iter()
         .enumerate()
-        .filter(|(_, (m, _))| **m != 0)
-        .zip(vector_b.iter_mut())
+        .filter(|(_, m)| **m)
         .enumerate()
-        .for_each(|(select_index, ((px_index, (_, p)), b))| {
-            *b = *p;
+        .for_each(|(select_index, (px_index, _))| {
             coo.push(select_index, px_index, 1.0f32);
         });
-    (CsrMatrix::from(&coo), DVector::from_vec(vector_b))
+    CsrMatrix::from(&coo)
 }
 
 /// build the difference matrix D
