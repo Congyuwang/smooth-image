@@ -3,9 +3,9 @@ use crate::error::Result;
 use crate::simd::{
     axpby, axpy, dot, matrix_vector_prod, neg, norm_squared, spbmv_cs_dense, CsrMatrixF32,
 };
-use nalgebra::DVector;
-use nalgebra_sparse::ops::{serial::spmm_csr_dense, Op::NoOp};
-use nalgebra_sparse::CsrMatrix;
+
+
+
 
 /// B_mat = A^T * A + mu * D^T * D
 /// c = A^T * b
@@ -29,7 +29,7 @@ fn cg_method_unchecked<CB: FnMut(i32, &[f32], f32)>(
     let mut bp = vec![0.0f32; b_mat.nrows()];
     loop {
         // ||r||2
-        let r_norm_squared = norm_squared(&r);
+        let r_norm_squared = norm_squared(r);
         // b * p (the only allocation in the loop)
         matrix_vector_prod(&mut bp, b_mat, &p);
         // alpha = ||r||2 / (p' * b * p)
@@ -66,7 +66,7 @@ pub fn cg_method<CB: FnMut(i32, &[f32], f32)>(
     metric_cb: CB,
 ) -> Result<(Vec<f32>, i32)> {
     if tol <= 0.0 {
-        return Err(ErrorMessage(format!("tol must be positive (tol={})", tol)));
+        return Err(ErrorMessage(format!("tol must be positive (tol={tol})")));
     }
     if b_mat.ncols() != b_mat.nrows() {
         return Err(ErrorMessage(format!(

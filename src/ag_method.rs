@@ -1,9 +1,9 @@
 use crate::error::{Error::ErrorMessage, Result};
-use crate::simd::{axpby, axpy, clone, norm_squared, spbmv_cs_dense, subtract_from, CsrMatrixF32};
-use nalgebra::DVector;
-use nalgebra_sparse::ops::serial::spmm_csr_dense;
-use nalgebra_sparse::ops::Op::NoOp;
-use nalgebra_sparse::CsrMatrix;
+use crate::simd::{axpby, clone, norm_squared, spbmv_cs_dense, subtract_from, CsrMatrixF32};
+
+
+
+
 
 /// f(x) = ||a * x - b ||^2 / 2 + mu / 2 * ||D * x||^2
 /// Df(x) = (A^T * A + mu * D^T * D) * x - A^T * b
@@ -75,7 +75,7 @@ pub fn ag_method<CB: FnMut(i32, &[f32], f32)>(
     metric_cb: CB,
 ) -> Result<(Vec<f32>, i32)> {
     if tol <= 0.0 {
-        return Err(ErrorMessage(format!("tol must be positive (tol={})", tol)));
+        return Err(ErrorMessage(format!("tol must be positive (tol={tol})")));
     }
     if b_mat.ncols() != b_mat.nrows() {
         return Err(ErrorMessage(format!(

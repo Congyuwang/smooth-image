@@ -1,5 +1,5 @@
 use nalgebra_sparse::CsrMatrix;
-use std::ops::{AddAssign, Neg, SubAssign};
+
 use std::simd::{f32x16, Simd, SimdFloat, StdFloat};
 
 pub const LANE: usize = 16;

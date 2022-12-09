@@ -30,15 +30,15 @@ pub fn resize_img_mask_to_luma(
 /// support png and jpeg
 pub fn read_img<P: AsRef<Path> + Debug>(image: P) -> Result<DynamicImage> {
     let image = Reader::open(&image)
-        .map_err(|e| Error::ErrorMessage(format!("Fail to open {:?} ({:?})", image, e)))?
+        .map_err(|e| Error::ErrorMessage(format!("Fail to open {image:?} ({e:?})")))?
         .decode()
-        .map_err(|e| Error::ErrorMessage(format!("Fail to decode {:?} ({:?})", image, e)))?;
+        .map_err(|e| Error::ErrorMessage(format!("Fail to decode {image:?} ({e:?})")))?;
     Ok(image)
 }
 
 pub fn write_png<P: AsRef<Path> + Debug>(out: P, img: &DynamicImage) -> Result<()> {
     img.save_with_format(&out, ImageFormat::Png).map_err(|e| {
-        Error::ErrorMessage(format!("Failed to save image to out {:?} ({:?})", out, e))
+        Error::ErrorMessage(format!("Failed to save image to out {out:?} ({e:?})"))
     })?;
     Ok(())
 }

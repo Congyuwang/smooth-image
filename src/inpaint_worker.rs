@@ -105,7 +105,8 @@ where
 
 pub fn gen_random_x(width: usize, height: usize, init_type: InitType) -> Vec<f32> {
     let size = width * height;
-    let vec = match init_type {
+    
+    match init_type {
         InitType::Rand => {
             let small_rng = SmallRng::from_entropy();
             let uniform = Uniform::<f32>::new(0.0, 1.0);
@@ -117,8 +118,7 @@ pub fn gen_random_x(width: usize, height: usize, init_type: InitType) -> Vec<f32
         InitType::Zero => {
             vec![0.0f32; size]
         }
-    };
-    vec
+    }
 }
 
 /// compute matrix B and vector c, init y
@@ -153,8 +153,7 @@ pub fn prepare_matrix(
         Op::NoOp(&matrix_a),
     ) {
         return Err(ErrorMessage(format!(
-            "error computing matrix B step 1: {:?}",
-            e
+            "error computing matrix B step 1: {e:?}"
         )));
     }
     // B += mu * D^T * D
@@ -166,8 +165,7 @@ pub fn prepare_matrix(
         Op::NoOp(&matrix_d),
     ) {
         return Err(ErrorMessage(format!(
-            "error computing matrix B step 2: {:?}",
-            e
+            "error computing matrix B step 2: {e:?}"
         )));
     }
     let mut c = DVector::zeros(size);

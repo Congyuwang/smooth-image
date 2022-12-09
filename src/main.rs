@@ -110,7 +110,7 @@ fn main() {
             if let Err(e) =
                 produce_gray_mask_image(&mask_img.image, &mask_img.mask, &mask_img.output)
             {
-                println!("Error producing image: {:?}", e);
+                println!("Error producing image: {e:?}");
             }
         }
         Task::InPaint(inpaint) => {
@@ -139,7 +139,7 @@ fn main() {
                 inpaint.metric_step,
             ) {
                 Err(e) => {
-                    println!("Error executing inpaint: {:?}", e);
+                    println!("Error executing inpaint: {e:?}");
                 }
                 Ok(stats) => {
                     let metric_table =
