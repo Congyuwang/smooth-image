@@ -335,14 +335,9 @@ unsafe fn dot_i(col_indices: &[usize], values: &[f32], b: &[f32]) -> f32 {
         5 => dot_i_loop::<5>(col_indices, values, b),
         6 => dot_i_loop::<6>(col_indices, values, b),
         7 => dot_i_loop::<7>(col_indices, values, b),
-        8 => dot_i_loop::<8>(col_indices, values, b),
-        9 => dot_i_loop::<9>(col_indices, values, b),
-        10 => dot_i_loop::<10>(col_indices, values, b),
-        11 => dot_i_loop::<11>(col_indices, values, b),
-        12 => dot_i_loop::<12>(col_indices, values, b),
-        13 => dot_i_loop::<13>(col_indices, values, b),
-        14 => dot_i_loop::<14>(col_indices, values, b),
-        15..=30 => dot_i_sim::<8>(col_indices, values, b),
+        8..=15 => dot_i_sim::<2>(col_indices, values, b),
+        16..=23 => dot_i_sim::<4>(col_indices, values, b),
+        24..=31 => dot_i_sim::<8>(col_indices, values, b),
         _ => dot_i_sim::<16>(col_indices, values, b),
     }
 }
