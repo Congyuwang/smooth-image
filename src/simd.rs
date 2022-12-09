@@ -14,90 +14,20 @@ pub struct CsrMatrixF32 {
     values: Vec<f32>,
 }
 
-impl CsrMatrixF32 {
-    pub fn nrows(&self) -> usize {
-        self.nrows
-    }
-
-    pub fn ncols(&self) -> usize {
-        self.ncols
-    }
-}
-
-impl From<CsrMatrix<f32>> for CsrMatrixF32 {
-    fn from(value: CsrMatrix<f32>) -> Self {
-        let nrows = value.nrows();
-        let ncols = value.ncols();
-        let (row_offsets, col_indices, values) = value.disassemble();
-        Self {
-            nrows,
-            ncols,
-            row_offsets,
-            col_indices,
-            values,
-        }
-    }
-}
-
-/// c = beta * c + alpha * Op(a) * b
+/// Computation of sparse matrix with dense matrix
+///
+/// c = beta * c + alpha * A * b
 #[inline]
-pub fn spbmv_cs_dense(beta: f32, c: &mut [f32], alpha: f32, a: &CsrMatrixF32, b: &[f32]) {
-    let (c0, c_sim, c1) = c.as_simd_mut::<LANE>();
-    let mut ind = 0usize;
-    let beta_sim = Simd::<f32, LANE>::splat(beta);
-    let alpha_sim = Simd::<f32, LANE>::splat(alpha);
+pub fn spmmv_dense(beta: f32, c: &mut [f32], alpha: f32, a: &CsrMatrixF32, b: &[f32]) {
     let row_offsets = a.row_offsets.as_slice();
     let col_indices = a.col_indices.as_slice();
     let values = a.values.as_slice();
-    unsafe {
-        for i in c0 {
-            let p0 = *row_offsets.get_unchecked(ind);
-            let p1 = *row_offsets.get_unchecked(ind + 1);
-            let dot = dot_i(&col_indices[p0..p1], &values[p0..p1], b);
-            *i = i.mul_add(beta, dot * alpha);
-            ind += 1;
-        }
-        for i_sim in c_sim {
-            // note that 16 is hard coded here
-            let dot_sim = dot_i_lane(ind, row_offsets, col_indices, values, b);
-            *i_sim = i_sim.mul_add(beta_sim, dot_sim * alpha_sim);
-            ind += LANE;
-        }
-        for i in c1 {
-            let p0 = *row_offsets.get_unchecked(ind);
-            let p1 = *row_offsets.get_unchecked(ind + 1);
-            let dot = dot_i(&col_indices[p0..p1], &values[p0..p1], b);
-            *i = i.mul_add(beta, dot * alpha);
-            ind += 1;
-        }
-    }
-}
 
-/// c = c + Op(a) * b
-pub fn matrix_vector_prod(c: &mut [f32], a: &CsrMatrixF32, b: &[f32]) {
-    let (c0, c_sim, c1) = c.as_simd_mut::<LANE>();
-    let mut ind = 0usize;
-    let row_offsets = a.row_offsets.as_slice();
-    let col_indices = a.col_indices.as_slice();
-    let values = a.values.as_slice();
-    unsafe {
-        for i in c0 {
-            let p0 = *row_offsets.get_unchecked(ind);
-            let p1 = *row_offsets.get_unchecked(ind + 1);
-            *i += dot_i(&col_indices[p0..p1], &values[p0..p1], b);
-            ind += 1;
-        }
-        for i_sim in c_sim {
-            // note that 16 is hard coded here
-            *i_sim = dot_i_lane(ind, row_offsets, col_indices, values, b);
-            ind += LANE;
-        }
-        for i in c1 {
-            let p0 = *row_offsets.get_unchecked(ind);
-            let p1 = *row_offsets.get_unchecked(ind + 1);
-            *i += dot_i(&col_indices[p0..p1], &values[p0..p1], b);
-            ind += 1;
-        }
+    if beta == 0.0 && alpha == 1.0 {
+        // c = A * b
+        matrix_vector_prod(c, row_offsets, col_indices, values, b)
+    } else {
+        mpmmv_full(beta, c, alpha, row_offsets, col_indices, values, b)
     }
 }
 
@@ -133,8 +63,7 @@ pub fn axpby(a: f32, x: &[f32], b: f32, y: &mut [f32]) {
     let b_sim = Simd::<f32, LANE>::splat(b);
     unsafe {
         for i in y0 {
-            *i *= b;
-            *i += a * x.get_unchecked(ind);
+            *i = i.mul_add(b, a * x.get_unchecked(ind));
             ind += 1;
         }
         for i_sim in y_sim {
@@ -143,8 +72,7 @@ pub fn axpby(a: f32, x: &[f32], b: f32, y: &mut [f32]) {
             ind += LANE;
         }
         for i in y1 {
-            *i *= b;
-            *i += a * x.get_unchecked(ind);
+            *i = i.mul_add(b, a * x.get_unchecked(ind));
             ind += 1;
         }
     }
@@ -242,6 +170,7 @@ pub fn subtract_from(x: &mut [f32], c: &[f32]) {
     }
 }
 
+#[inline(always)]
 pub fn neg(x: &mut [f32]) {
     let (x0, x_sim, x1) = x.as_simd_mut::<LANE>();
     for i in x0 {
@@ -256,6 +185,7 @@ pub fn neg(x: &mut [f32]) {
     }
 }
 
+#[inline(always)]
 pub fn copy_simd(x: &mut [f32], c: &[f32]) {
     let mut ind = 0usize;
     let (x0, x_sim, x1) = x.as_simd_mut::<LANE>();
@@ -271,6 +201,76 @@ pub fn copy_simd(x: &mut [f32], c: &[f32]) {
         }
         for i in x1 {
             *i = *c.get_unchecked(ind);
+            ind += 1;
+        }
+    }
+}
+
+#[inline(always)]
+fn mpmmv_full(
+    beta: f32,
+    c: &mut [f32],
+    alpha: f32,
+    row_offsets: &[usize],
+    col_indices: &[usize],
+    values: &[f32],
+    b: &[f32],
+) {
+    let beta_sim = Simd::<f32, LANE>::splat(beta);
+    let alpha_sim = Simd::<f32, LANE>::splat(alpha);
+    let (c0, c_sim, c1) = c.as_simd_mut::<LANE>();
+    let mut ind = 0usize;
+    unsafe {
+        for i in c0 {
+            let p0 = *row_offsets.get_unchecked(ind);
+            let p1 = *row_offsets.get_unchecked(ind + 1);
+            let dot = dot_i(&col_indices[p0..p1], &values[p0..p1], b);
+            *i = i.mul_add(beta, dot * alpha);
+            ind += 1;
+        }
+        for i_sim in c_sim {
+            // note that 16 is hard coded here
+            let dot_sim = dot_i_lane(ind, row_offsets, col_indices, values, b);
+            *i_sim = i_sim.mul_add(beta_sim, dot_sim * alpha_sim);
+            ind += LANE;
+        }
+        for i in c1 {
+            let p0 = *row_offsets.get_unchecked(ind);
+            let p1 = *row_offsets.get_unchecked(ind + 1);
+            let dot = dot_i(&col_indices[p0..p1], &values[p0..p1], b);
+            *i = i.mul_add(beta, dot * alpha);
+            ind += 1;
+        }
+    }
+}
+
+/// c = A * b
+#[inline]
+fn matrix_vector_prod(
+    c: &mut [f32],
+    row_offsets: &[usize],
+    col_indices: &[usize],
+    values: &[f32],
+    b: &[f32],
+) {
+    let (c0, c_sim, c1) = c.as_simd_mut::<LANE>();
+    let mut ind = 0usize;
+    unsafe {
+        for i in c0 {
+            let p0 = *row_offsets.get_unchecked(ind);
+            let p1 = *row_offsets.get_unchecked(ind + 1);
+            *i = dot_i(&col_indices[p0..p1], &values[p0..p1], b);
+            ind += 1;
+        }
+        for i_sim in c_sim {
+            // note that 16 is hard coded here
+            *i_sim = dot_i_lane(ind, row_offsets, col_indices, values, b);
+            ind += LANE;
+        }
+        for i in c1 {
+            let p0 = *row_offsets.get_unchecked(ind);
+            let p1 = *row_offsets.get_unchecked(ind + 1);
+            *i = dot_i(&col_indices[p0..p1], &values[p0..p1], b);
             ind += 1;
         }
     }
@@ -423,4 +423,29 @@ unsafe fn sim_from_slice_16(slice: &[f32]) -> f32x16 {
         *slice.get_unchecked(14),
         *slice.get_unchecked(15),
     ])
+}
+
+impl CsrMatrixF32 {
+    pub fn nrows(&self) -> usize {
+        self.nrows
+    }
+
+    pub fn ncols(&self) -> usize {
+        self.ncols
+    }
+}
+
+impl From<CsrMatrix<f32>> for CsrMatrixF32 {
+    fn from(value: CsrMatrix<f32>) -> Self {
+        let nrows = value.nrows();
+        let ncols = value.ncols();
+        let (row_offsets, col_indices, values) = value.disassemble();
+        Self {
+            nrows,
+            ncols,
+            row_offsets,
+            col_indices,
+            values,
+        }
+    }
 }

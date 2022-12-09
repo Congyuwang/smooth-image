@@ -1,5 +1,5 @@
 use crate::error::{Error::ErrorMessage, Result};
-use crate::simd::{axpby, copy_simd, norm_squared, spbmv_cs_dense, subtract_from, CsrMatrixF32};
+use crate::simd::{axpby, copy_simd, norm_squared, spmmv_dense, subtract_from, CsrMatrixF32};
 
 /// f(x) = ||a * x - b ||^2 / 2 + mu / 2 * ||D * x||^2
 /// Df(x) = (A^T * A + mu * D^T * D) * x - A^T * b
@@ -36,7 +36,7 @@ fn ag_method_unchecked<CB: FnMut(i32, &[f32], f32)>(
         axpby(-beta, &x_old, 1.0 + beta, &mut x);
         copy_simd(&mut y, &x);
         // 3. x is now Df(y^k+1)
-        spbmv_cs_dense(0.0, &mut x, 1.0, b_mat, &y);
+        spmmv_dense(0.0, &mut x, 1.0, b_mat, &y);
         subtract_from(&mut x, &c);
         let grad_norm = norm_squared(&x).sqrt();
         // metric callback
