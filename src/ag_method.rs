@@ -1,10 +1,6 @@
 use crate::error::{Error::ErrorMessage, Result};
 use crate::simd::{axpby, clone, norm_squared, spbmv_cs_dense, subtract_from, CsrMatrixF32};
 
-
-
-
-
 /// f(x) = ||a * x - b ||^2 / 2 + mu / 2 * ||D * x||^2
 /// Df(x) = (A^T * A + mu * D^T * D) * x - A^T * b
 ///

@@ -105,7 +105,7 @@ where
 
 pub fn gen_random_x(width: usize, height: usize, init_type: InitType) -> Vec<f32> {
     let size = width * height;
-    
+
     match init_type {
         InitType::Rand => {
             let small_rng = SmallRng::from_entropy();

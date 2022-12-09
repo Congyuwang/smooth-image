@@ -4,9 +4,6 @@ use crate::simd::{
     axpby, axpy, dot, matrix_vector_prod, neg, norm_squared, spbmv_cs_dense, CsrMatrixF32,
 };
 
-
-
-
 /// B_mat = A^T * A + mu * D^T * D
 /// c = A^T * b
 #[inline(always)]

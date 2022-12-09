@@ -37,8 +37,7 @@ pub fn read_img<P: AsRef<Path> + Debug>(image: P) -> Result<DynamicImage> {
 }
 
 pub fn write_png<P: AsRef<Path> + Debug>(out: P, img: &DynamicImage) -> Result<()> {
-    img.save_with_format(&out, ImageFormat::Png).map_err(|e| {
-        Error::ErrorMessage(format!("Failed to save image to out {out:?} ({e:?})"))
-    })?;
+    img.save_with_format(&out, ImageFormat::Png)
+        .map_err(|e| Error::ErrorMessage(format!("Failed to save image to out {out:?} ({e:?})")))?;
     Ok(())
 }

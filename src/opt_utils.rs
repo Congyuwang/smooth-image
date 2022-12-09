@@ -1,4 +1,4 @@
-use crate::simd::{metric_distance_squared};
+use crate::simd::metric_distance_squared;
 use nalgebra::DVector;
 use nalgebra_sparse::coo::CooMatrix;
 use nalgebra_sparse::CsrMatrix;
