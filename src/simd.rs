@@ -1,13 +1,7 @@
 use nalgebra_sparse::CsrMatrix;
-
-use std::simd::{f32x16, f32x4, Simd, SimdFloat, StdFloat};
+use std::simd::{f32x16, LaneCount, Mask, Simd, SimdFloat, StdFloat, SupportedLaneCount};
 
 pub const LANE: usize = 16;
-pub const LANE_S: usize = 4;
-
-/// if the inner loop length for sparse is greater than
-/// this value, use SIMD; otherwise, use simple loop
-pub const SPARSE_INNER_SIMD_THRESH_HOLD: usize = 8;
 
 pub struct CsrMatrixF32 {
     nrows: usize,
@@ -329,18 +323,40 @@ unsafe fn dot_i_lane(
 
 #[inline(always)]
 unsafe fn dot_i(col_indices: &[usize], values: &[f32], b: &[f32]) -> f32 {
-    if col_indices.len() > SPARSE_INNER_SIMD_THRESH_HOLD {
-        dot_i_sim(col_indices, values, b)
-    } else {
-        dot_i_simple(col_indices, values, b)
+    match col_indices.len() {
+        0 => 0.0,
+        1 => values.get_unchecked(0) * b.get_unchecked(*col_indices.get_unchecked(0)),
+        2 => {
+            values.get_unchecked(0) * b.get_unchecked(*col_indices.get_unchecked(0))
+                + values.get_unchecked(1) * b.get_unchecked(*col_indices.get_unchecked(1))
+        }
+        3 => dot_i_loop::<3>(col_indices, values, b),
+        4 => dot_i_loop::<4>(col_indices, values, b),
+        5 => dot_i_loop::<5>(col_indices, values, b),
+        6 => dot_i_loop::<6>(col_indices, values, b),
+        7 => dot_i_loop::<7>(col_indices, values, b),
+        8 => dot_i_loop::<8>(col_indices, values, b),
+        9 => dot_i_loop::<9>(col_indices, values, b),
+        10 => dot_i_loop::<10>(col_indices, values, b),
+        11 => dot_i_loop::<11>(col_indices, values, b),
+        12 => dot_i_loop::<12>(col_indices, values, b),
+        13 => dot_i_loop::<13>(col_indices, values, b),
+        14 => dot_i_loop::<14>(col_indices, values, b),
+        15 => dot_i_loop::<15>(col_indices, values, b),
+        16..=23 => dot_i_sim::<4>(col_indices, values, b),
+        24..=31 => dot_i_sim::<8>(col_indices, values, b),
+        _ => dot_i_sim::<16>(col_indices, values, b),
     }
 }
 
 #[inline(always)]
-unsafe fn dot_i_sim(col_indices: &[usize], values: &[f32], b: &[f32]) -> f32 {
-    let (col0, col_sim, col1) = values.as_simd::<LANE_S>();
+unsafe fn dot_i_sim<const LANE: usize>(col_indices: &[usize], values: &[f32], b: &[f32]) -> f32
+where
+    LaneCount<LANE>: SupportedLaneCount,
+{
+    let (col0, col_sim, col1) = values.as_simd::<LANE>();
     let mut dot = 0.0f32;
-    let mut dot_sim = Simd::<f32, LANE_S>::splat(0.0f32);
+    let mut dot_sim = Simd::<f32, LANE>::splat(0.0f32);
     let mut ind = 0usize;
     unsafe {
         for i in col0 {
@@ -349,8 +365,8 @@ unsafe fn dot_i_sim(col_indices: &[usize], values: &[f32], b: &[f32]) -> f32 {
         }
         for i_sim in col_sim {
             // note that 16 is hard coded here
-            dot_sim += i_sim * sim_from_slice_index_f(b, &col_indices[ind..]);
-            ind += LANE_S;
+            dot_sim += i_sim * sim_from_slice_index::<LANE>(b, &col_indices[ind..]);
+            ind += LANE;
         }
         for i in col1 {
             dot += i * b.get_unchecked(*col_indices.get_unchecked(ind));
@@ -362,12 +378,29 @@ unsafe fn dot_i_sim(col_indices: &[usize], values: &[f32], b: &[f32]) -> f32 {
 }
 
 #[inline(always)]
-unsafe fn dot_i_simple(col_indices: &[usize], col_values: &[f32], b: &[f32]) -> f32 {
-    let mut dot = 0.0f32;
-    for (i, v) in col_indices.iter().zip(col_values.iter()) {
-        dot += v * b.get_unchecked(*i);
+unsafe fn dot_i_loop<const N: usize>(col_indices: &[usize], values: &[f32], b: &[f32]) -> f32 {
+    let mut sum = 0.0f32;
+    for j in 0..N {
+        let col_idx = *col_indices.get_unchecked(j);
+        let b_j = b.get_unchecked(col_idx);
+        let a_ij = values.get_unchecked(j);
+        sum += b_j * a_ij;
     }
-    dot
+    sum
+}
+
+#[inline(always)]
+unsafe fn sim_from_slice_index<const LANE: usize>(
+    full_slice: &[f32],
+    index: &[usize],
+) -> Simd<f32, LANE>
+where
+    LaneCount<LANE>: SupportedLaneCount,
+{
+    let idxs = Simd::<usize, LANE>::from_slice(&index[0..LANE]);
+    let enable = Mask::<isize, LANE>::splat(true);
+    let or = Simd::<f32, LANE>::splat(0.0f32);
+    unsafe { Simd::<f32, LANE>::gather_select_unchecked(full_slice, enable, idxs, or) }
 }
 
 #[inline(always)]
@@ -389,15 +422,5 @@ unsafe fn sim_from_slice_16(slice: &[f32]) -> f32x16 {
         *slice.get_unchecked(13),
         *slice.get_unchecked(14),
         *slice.get_unchecked(15),
-    ])
-}
-
-#[inline(always)]
-unsafe fn sim_from_slice_index_f(full_slice: &[f32], index: &[usize]) -> f32x4 {
-    f32x4::from_array([
-        *full_slice.get_unchecked(*index.get_unchecked(0)),
-        *full_slice.get_unchecked(*index.get_unchecked(1)),
-        *full_slice.get_unchecked(*index.get_unchecked(2)),
-        *full_slice.get_unchecked(*index.get_unchecked(3)),
     ])
 }
