@@ -81,11 +81,11 @@ pub fn spmv_cs_dense_part(
         .enumerate()
         .map(|(i, c_i)| (c_i, a.get_row(i + start_row).unwrap()))
         .for_each(|(c_i, a_row_i)| {
-            *c_i = a_row_i
+            *c_i = alpha * a_row_i
                 .col_indices()
                 .iter()
                 .zip(a_row_i.values().iter())
-                .map(|(j, v)| alpha * unsafe { b.get_unchecked(*j) } * f32x4::splat(*v))
+                .map(|(j, v)| unsafe { b.get_unchecked(*j) } * f32x4::splat(*v))
                 .sum::<f32x4>();
         })
 }
