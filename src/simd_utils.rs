@@ -1,5 +1,6 @@
 use nalgebra_sparse::CsrMatrix;
 use rayon::join;
+use std::ops::{AddAssign, SubAssign};
 use std::simd::{f32x4, StdFloat};
 
 pub const ZERO_F32X4: f32x4 = f32x4::from_array([0.0; 4]);
@@ -26,7 +27,7 @@ pub fn spbmv_cs_dense(beta: f32x4, c: &mut [f32x4], alpha: f32x4, a: &CsrMatrix<
 }
 
 #[inline]
-fn spbmv_cs_dense_part(
+pub fn spbmv_cs_dense_part(
     beta: f32x4,
     c: &mut [f32x4],
     alpha: f32x4,
@@ -38,17 +39,13 @@ fn spbmv_cs_dense_part(
         .enumerate()
         .map(|(i, c_i)| (c_i, a.get_row(i + start_row).unwrap()))
         .for_each(|(c_i, a_row_i)| {
-            let col_indices = a_row_i.col_indices();
-            let values = a_row_i.values();
-            let mut dot_i = ZERO_F32X4;
-            unsafe {
-                for (v, j) in values.iter().zip(col_indices.iter()) {
-                    let a_ij = f32x4::splat(*v);
-                    let b_j = b.get_unchecked(*j);
-                    dot_i += a_ij * b_j;
-                }
-            }
-            *c_i = c_i.mul_add(beta, dot_i * alpha);
+            let dot_ij = a_row_i
+                .col_indices()
+                .iter()
+                .zip(a_row_i.values().iter())
+                .map(|(j, v)| unsafe { b.get_unchecked(*j) } * f32x4::splat(*v))
+                .sum::<f32x4>();
+            *c_i = c_i.mul_add(beta, dot_ij * alpha);
         });
 }
 
@@ -73,7 +70,7 @@ pub fn spmv_cs_dense(c: &mut [f32x4], alpha: f32x4, a: &CsrMatrix<f32>, b: &[f32
 }
 
 #[inline(always)]
-fn spmv_cs_dense_part(
+pub fn spmv_cs_dense_part(
     c: &mut [f32x4],
     alpha: f32x4,
     a: &CsrMatrix<f32>,
@@ -84,17 +81,12 @@ fn spmv_cs_dense_part(
         .enumerate()
         .map(|(i, c_i)| (c_i, a.get_row(i + start_row).unwrap()))
         .for_each(|(c_i, a_row_i)| {
-            let col_indices = a_row_i.col_indices();
-            let values = a_row_i.values();
-            let mut dot_i = ZERO_F32X4;
-            unsafe {
-                for (v, j) in values.iter().zip(col_indices.iter()) {
-                    let a_ij = f32x4::splat(*v);
-                    let b_j = b.get_unchecked(*j);
-                    dot_i += a_ij * b_j;
-                }
-            }
-            *c_i = alpha * dot_i;
+            *c_i = a_row_i
+                .col_indices()
+                .iter()
+                .zip(a_row_i.values().iter())
+                .map(|(j, v)| alpha * unsafe { b.get_unchecked(*j) } * f32x4::splat(*v))
+                .sum::<f32x4>();
         })
 }
 
@@ -104,19 +96,26 @@ pub fn axpy(a: f32x4, x: &[f32x4], y: &mut [f32x4]) {
     let (_, _, _, x0, x1, x2, x3) = split_in_four(x);
     let (_, _, _, y0, y1, y2, y3) = split_in_four_mut(y);
     join(
-        || join(|| axpy_part(a, x0, y0), || axpy_part(a, x1, y1)),
-        || join(|| axpy_part(a, x2, y2), || axpy_part(a, x3, y3)),
+        || {
+            join(
+                || axpy_part(a, x0, y0),
+                || axpy_part(a, x1, y1),
+            )
+        },
+        || {
+            join(
+                || axpy_part(a, x2, y2),
+                || axpy_part(a, x3, y3),
+            )
+        },
     );
 }
 
 #[inline(always)]
-fn axpy_part(a: f32x4, x: &[f32x4], y: &mut [f32x4]) {
-    for i in 0..x.len() {
-        unsafe {
-            let y_mut = y.get_unchecked_mut(i);
-            *y_mut += a * x.get_unchecked(i);
-        }
-    }
+pub fn axpy_part(a: f32x4, x: &[f32x4], y: &mut [f32x4]) {
+    y.iter_mut()
+        .zip(x.iter())
+        .for_each(|(y, x)| y.add_assign(a * x))
 }
 
 /// y <- a * x + b * y
@@ -125,17 +124,26 @@ pub fn axpby(a: f32x4, x: &[f32x4], b: f32x4, y: &mut [f32x4]) {
     let (_, _, _, x0, x1, x2, x3) = split_in_four(x);
     let (_, _, _, y0, y1, y2, y3) = split_in_four_mut(y);
     join(
-        || join(|| axpby_part(a, x0, b, y0), || axpby_part(a, x1, b, y1)),
-        || join(|| axpby_part(a, x2, b, y2), || axpby_part(a, x3, b, y3)),
+        || {
+            join(
+                || axpby_part(a, x0, b, y0),
+                || axpby_part(a, x1, b, y1),
+            )
+        },
+        || {
+            join(
+                || axpby_part(a, x2, b, y2),
+                || axpby_part(a, x3, b, y3),
+            )
+        },
     );
 }
 
 #[inline(always)]
-fn axpby_part(a: f32x4, x: &[f32x4], b: f32x4, y: &mut [f32x4]) {
-    for i in 0..x.len() {
-        let y_mut = unsafe { y.get_unchecked_mut(i) };
-        *y_mut = y_mut.mul_add(b, a * unsafe { x.get_unchecked(i) });
-    }
+pub fn axpby_part(a: f32x4, x: &[f32x4], b: f32x4, y: &mut [f32x4]) {
+    y.iter_mut()
+        .zip(x.iter())
+        .for_each(|(y, x)| *y = y.mul_add(b, a * x))
 }
 
 #[inline(always)]
@@ -144,11 +152,17 @@ pub fn dot(a: &[f32x4], b: &[f32x4]) -> f32x4 {
     let (_, _, _, y0, y1, y2, y3) = split_in_four(b);
     let (a, b) = join(
         || {
-            let (a, b) = join(|| dot_part(x0, y0), || dot_part(x1, y1));
+            let (a, b) = join(
+                || dot_part(x0, y0),
+                || dot_part(x1, y1),
+            );
             a + b
         },
         || {
-            let (a, b) = join(|| dot_part(x2, y2), || dot_part(x3, y3));
+            let (a, b) = join(
+                || dot_part(x2, y2),
+                || dot_part(x3, y3),
+            );
             a + b
         },
     );
@@ -156,12 +170,8 @@ pub fn dot(a: &[f32x4], b: &[f32x4]) -> f32x4 {
 }
 
 #[inline(always)]
-fn dot_part(a: &[f32x4], b: &[f32x4]) -> f32x4 {
-    let mut sum = ZERO_F32X4;
-    for i in 0..a.len() {
-        unsafe { sum += a.get_unchecked(i) * b.get_unchecked(i) };
-    }
-    sum
+pub fn dot_part(a: &[f32x4], b: &[f32x4]) -> f32x4 {
+    a.iter().zip(b.iter()).map(|(a, b)| a * b).sum()
 }
 
 #[inline(always)]
@@ -169,11 +179,17 @@ pub fn norm_squared(v: &[f32x4]) -> f32x4 {
     let (_, _, _, y0, y1, y2, y3) = split_in_four(v);
     let (a, b) = join(
         || {
-            let (a, b) = join(|| norm_squared_part(y0), || norm_squared_part(y1));
+            let (a, b) = join(
+                || norm_squared_part(y0),
+                || norm_squared_part(y1),
+            );
             a + b
         },
         || {
-            let (a, b) = join(|| norm_squared_part(y2), || norm_squared_part(y3));
+            let (a, b) = join(
+                || norm_squared_part(y2),
+                || norm_squared_part(y3),
+            );
             a + b
         },
     );
@@ -181,50 +197,55 @@ pub fn norm_squared(v: &[f32x4]) -> f32x4 {
 }
 
 #[inline(always)]
-fn norm_squared_part(v: &[f32x4]) -> f32x4 {
-    let mut sum = ZERO_F32X4;
-    for vi in v {
-        sum += vi * vi;
-    }
-    sum
+pub fn norm_squared_part(v: &[f32x4]) -> f32x4 {
+    v.iter().map(|v| v * v).sum()
 }
 
 #[inline(always)]
-pub fn copy(to: &mut [f32x4], from: &[f32x4]) {
+pub fn copy(to: &mut[f32x4], from: &[f32x4]) {
     let (_, _, _, x0, x1, x2, x3) = split_in_four_mut(to);
     let (_, _, _, y0, y1, y2, y3) = split_in_four(from);
     join(
         || {
-            join(|| x0.copy_from_slice(y0), || x1.copy_from_slice(y1));
+            join(
+                || x0.copy_from_slice(y0),
+                || x1.copy_from_slice(y1),
+            );
         },
         || {
-            join(|| x2.copy_from_slice(y2), || x3.copy_from_slice(y3));
+            join(
+                || x2.copy_from_slice(y2),
+                || x3.copy_from_slice(y3),
+            );
         },
     );
 }
 
 #[inline(always)]
-pub fn subtract_from(x: &mut [f32x4], c: &[f32x4]) {
+pub fn subtract_from(x: &mut[f32x4], c: &[f32x4]) {
     let (_, _, _, x0, x1, x2, x3) = split_in_four_mut(x);
     let (_, _, _, y0, y1, y2, y3) = split_in_four(c);
     join(
         || {
-            join(|| subtract_from_part(x0, y0), || subtract_from_part(x1, y1));
+            join(
+                || subtract_from_part(x0, y0),
+                || subtract_from_part(x1, y1),
+            );
         },
         || {
-            join(|| subtract_from_part(x2, y2), || subtract_from_part(x3, y3));
+            join(
+                || subtract_from_part(x2, y2),
+                || subtract_from_part(x3, y3),
+            );
         },
     );
 }
 
 #[inline(always)]
-fn subtract_from_part(x: &mut [f32x4], c: &[f32x4]) {
-    for i in 0..x.len() {
-        unsafe {
-            let x_mut = x.get_unchecked_mut(i);
-            *x_mut -= c.get_unchecked(i);
-        }
-    }
+pub fn subtract_from_part(x: &mut[f32x4], c: &[f32x4]) {
+    x.iter_mut()
+        .zip(c.iter())
+        .for_each(|(x, c)| x.sub_assign(c));
 }
 
 #[inline(always)]

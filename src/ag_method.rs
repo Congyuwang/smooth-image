@@ -1,7 +1,5 @@
 use crate::error::{Error::ErrorMessage, Result};
-use crate::simd_utils::{
-    axpby, copy, norm_squared, spmv_cs_dense, subtract_from, ONE_F32X4, ZERO_F32X4,
-};
+use crate::simd_utils::{axpby, norm_squared, spmv_cs_dense, ONE_F32X4, ZERO_F32X4, subtract_from, copy};
 use nalgebra_sparse::CsrMatrix;
 use std::simd::{f32x4, SimdFloat, StdFloat};
 
