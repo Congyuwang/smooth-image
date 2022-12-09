@@ -10,6 +10,7 @@ use tabled::{Table, Tabled};
 mod ag_method;
 mod cg_method;
 mod error;
+mod image_format;
 mod inpaint_worker;
 mod io;
 mod mask_painter;
@@ -63,6 +64,9 @@ struct InPaint {
     /// negative step means no output
     #[arg(long, default_value_t = 10)]
     metric_step: i32,
+    /// produces mono-color-image
+    #[arg(long, default_value_t = false)]
+    mono: bool
 }
 
 #[derive(Tabled)]
@@ -137,6 +141,7 @@ fn main() {
                 inpaint.tol,
                 init,
                 inpaint.metric_step,
+                !inpaint.mono
             ) {
                 Err(e) => {
                     println!("Error executing inpaint: {e:?}");

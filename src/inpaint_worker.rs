@@ -2,10 +2,10 @@ use crate::ag_method::ag_method;
 use crate::cg_method::cg_method;
 use crate::error::Error::ErrorMessage;
 use crate::error::Result;
-use crate::io::{read_img, resize_img_mask_to_luma, write_png};
+use crate::image_format::{make_mask_image, ImageFormat, Mask};
+use crate::io::{read_img, write_png};
 use crate::opt_utils::{matrix_a, matrix_d, psnr};
 use crate::simd::CsrMatrixF32;
-use image::{DynamicImage, GrayImage};
 use nalgebra::DVector;
 use nalgebra_sparse::ops::serial::{
     spadd_pattern, spmm_csr_dense, spmm_csr_pattern, spmm_csr_prealloc,
@@ -16,15 +16,18 @@ use rand::distributions::Distribution;
 use rand::distributions::Uniform;
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
+use rayon::scope;
 use std::fmt::Debug;
 use std::path::Path;
 use std::time::Instant;
 
+#[derive(Copy, Clone)]
 pub enum OptAlgo {
     Cg,
     Ag,
 }
 
+#[derive(Copy, Clone)]
 pub enum InitType {
     Rand,
     Zero,
@@ -49,6 +52,7 @@ pub fn run_inpaint<I, M, O>(
     tol: f32,
     init_type: InitType,
     metric_step: i32,
+    color: bool,
 ) -> Result<RuntimeStats>
 where
     I: AsRef<Path> + Debug,
@@ -56,54 +60,210 @@ where
     O: AsRef<Path> + Debug,
 {
     let start_time = Instant::now();
-    let image = read_img(image)?;
+    let mut image = read_img(image)?;
+    if !color {
+        image = image.grayscale();
+    }
     let mask = read_img(mask)?;
-    let (img, mask) = resize_img_mask_to_luma(image, mask)?;
-    let width = img.width() as usize;
-    let height = img.height() as usize;
-    let img = img.as_raw();
-    let mask = mask.as_raw();
-    let image_read_time = Instant::now();
-    let orig = DVector::<f32>::from_vec(img.iter().map(|p| *p as f32 / 256.0).collect::<Vec<_>>());
+    let (mask, image) = make_mask_image(mask, image)?;
 
-    let x = gen_random_x(width, height, init_type);
-    let (b_mat, c) = prepare_matrix(width, height, orig.as_slice(), mask, mu)?;
-    let matrix_generation_time = Instant::now();
-    let mut metrics = Vec::<(i32, f32)>::new();
-    let metric_cb = |iter_round, inferred: &[f32], tol_var: f32| {
-        let psnr = psnr(inferred, orig.as_slice());
-        println!("iter={iter_round}, psnr={psnr}, tol_var={tol_var}");
-        metrics.push((iter_round, psnr));
-    };
+    let image_read_time = Instant::now();
+
+    let (b_mat, matrix_a) = prepare_matrix(&mask, mu)?;
     let b_mat = CsrMatrixF32::from(b_mat);
 
-    let (output, iter_round) = match algo {
-        OptAlgo::Cg => cg_method(&b_mat, c, x, tol, metric_step, metric_cb)?,
-        OptAlgo::Ag => ag_method(&b_mat, c, mu, x, tol, metric_step, metric_cb)?,
+    let matrix_generation_time = Instant::now();
+
+    struct ProcessOutput {
+        output: ImageFormat,
+        rounds: i32,
+        metrics: Vec<(i32, f32)>,
+    }
+
+    let layer_worker = |thread_id: i32, layer: &[f32]| {
+        let x = init_x(mask.width as usize, mask.height as usize, init_type);
+        let mut metrics = Vec::<(i32, f32)>::new();
+        let metric_cb = |iter_round, inferred: &[f32], tol_var: f32| {
+            let psnr = psnr(inferred, layer);
+            println!("thread={thread_id}, iter={iter_round}, psnr={psnr}, tol_var={tol_var}");
+            metrics.push((iter_round, psnr));
+        };
+        let c = compute_c(&matrix_a, &mask, layer);
+        let run_result = match algo {
+            OptAlgo::Cg => cg_method(&b_mat, c, x, tol, metric_step, metric_cb),
+            OptAlgo::Ag => ag_method(&b_mat, c, mu, x, tol, metric_step, metric_cb),
+        };
+        match run_result {
+            Ok((output, iter_round)) => {
+                Ok((output, iter_round, metrics))
+            },
+            Err(e) => Err(e),
+        }
     };
+
+    let output = match &image {
+        ImageFormat::Luma { width, height, l } => {
+            let (output, rounds, metrics) = layer_worker(0 , l.as_slice())?;
+            ProcessOutput {
+                output: ImageFormat::Luma {
+                    width: *width,
+                    height: *height,
+                    l: output,
+                },
+                rounds,
+                metrics,
+            }
+        }
+        ImageFormat::LumaA {
+            width,
+            height,
+            l,
+            a,
+        } => {
+            let mut l_output = None;
+            let mut a_output = None;
+            scope(|s| {
+                s.spawn(|_| {
+                    l_output = Some(layer_worker(0, l.as_slice()));
+                });
+                s.spawn(|_| {
+                    a_output = Some(layer_worker(1, a.as_slice()));
+                })
+            });
+            let (l_output, l_rounds, l_metrics) = l_output.unwrap()?;
+            let (a_output, a_rounds, a_metrics) = a_output.unwrap()?;
+            ProcessOutput {
+                output: ImageFormat::LumaA {
+                    width: *width,
+                    height: *height,
+                    l: l_output,
+                    a: a_output,
+                },
+                rounds: l_rounds.max(a_rounds),
+                metrics: if l_rounds > a_rounds {
+                    l_metrics
+                } else {
+                    a_metrics
+                },
+            }
+        }
+        ImageFormat::Rgb {
+            width,
+            height,
+            r,
+            g,
+            b,
+        } => {
+            let mut r_output = None;
+            let mut g_output = None;
+            let mut b_output = None;
+            scope(|s| {
+                s.spawn(|_| {
+                    r_output = Some(layer_worker(0, r.as_slice()));
+                });
+                s.spawn(|_| {
+                    g_output = Some(layer_worker(1, g.as_slice()));
+                });
+                s.spawn(|_| {
+                    b_output = Some(layer_worker(2, b.as_slice()));
+                })
+            });
+            let (r_output, r_rounds, r_metrics) = r_output.unwrap()?;
+            let (g_output, g_rounds, g_metrics) = g_output.unwrap()?;
+            let (b_output, b_rounds, b_metrics) = b_output.unwrap()?;
+            let max_rounds = r_rounds.max(g_rounds).max(b_rounds);
+            ProcessOutput {
+                output: ImageFormat::Rgb {
+                    width: *width,
+                    height: *height,
+                    r: r_output,
+                    g: g_output,
+                    b: b_output,
+                },
+                rounds: max_rounds,
+                metrics: if r_rounds == max_rounds {
+                    r_metrics
+                } else if g_rounds == max_rounds {
+                    g_metrics
+                } else {
+                    b_metrics
+                },
+            }
+        }
+        ImageFormat::Rgba {
+            width,
+            height,
+            r,
+            g,
+            b,
+            a,
+        } => {
+            let mut r_output = None;
+            let mut g_output = None;
+            let mut b_output = None;
+            let mut a_output = None;
+            scope(|s| {
+                s.spawn(|_| {
+                    r_output = Some(layer_worker(0, r.as_slice()));
+                });
+                s.spawn(|_| {
+                    g_output = Some(layer_worker(1, g.as_slice()));
+                });
+                s.spawn(|_| {
+                    b_output = Some(layer_worker(2, b.as_slice()));
+                });
+                s.spawn(|_| {
+                    a_output = Some(layer_worker(3, a.as_slice()));
+                })
+            });
+            let (r_output, r_rounds, r_metrics) = r_output.unwrap()?;
+            let (g_output, g_rounds, g_metrics) = g_output.unwrap()?;
+            let (b_output, b_rounds, b_metrics) = b_output.unwrap()?;
+            let (a_output, a_rounds, a_metrics) = a_output.unwrap()?;
+            let max_rounds = r_rounds.max(g_rounds).max(b_rounds).max(a_rounds);
+            ProcessOutput {
+                output: ImageFormat::Rgba {
+                    width: *width,
+                    height: *height,
+                    r: r_output,
+                    g: g_output,
+                    b: b_output,
+                    a: a_output,
+                },
+                rounds: max_rounds,
+                metrics: if r_rounds == max_rounds {
+                    r_metrics
+                } else if g_rounds == max_rounds {
+                    g_metrics
+                } else if b_rounds == max_rounds {
+                    b_metrics
+                } else {
+                    a_metrics
+                },
+            }
+        }
+    };
+
     let optimization_time = Instant::now();
 
-    let pixels = output
-        .iter()
-        .map(|p| (*p * 256.0) as u8)
-        .collect::<Vec<_>>();
-    let img = GrayImage::from_vec(width as u32, height as u32, pixels).unwrap();
-    write_png(out, &DynamicImage::ImageLuma8(img))?;
+    write_png(out, &output.output.to_img())?;
+
     let image_write_time = Instant::now();
+
     let runtime_stats = RuntimeStats {
         start_time,
         image_read_time,
         matrix_generation_time,
         optimization_time,
         image_write_time,
-        total_iteration: iter_round,
-        psnr_history: metrics,
+        total_iteration: output.rounds,
+        psnr_history: output.metrics,
     };
 
     Ok(runtime_stats)
 }
 
-pub fn gen_random_x(width: usize, height: usize, init_type: InitType) -> Vec<f32> {
+pub fn init_x(width: usize, height: usize, init_type: InitType) -> Vec<f32> {
     let size = width * height;
 
     match init_type {
@@ -121,22 +281,10 @@ pub fn gen_random_x(width: usize, height: usize, init_type: InitType) -> Vec<f32
     }
 }
 
-/// compute matrix B and vector c, init y
-pub fn prepare_matrix(
-    width: usize,
-    height: usize,
-    orig: &[f32],
-    mask: &[u8],
-    mu: f32,
-) -> Result<(CsrMatrix<f32>, Vec<f32>)> {
-    let size = width * height;
-    if mask.len() != size || orig.len() != size {
-        return Err(ErrorMessage(
-            "unmatched lengths detected when executing algo".to_string(),
-        ));
-    }
-    let (matrix_a, vector_b) = matrix_a(mask, orig);
-    let matrix_d = matrix_d(width, height);
+/// compute matrix B and matrix A
+pub fn prepare_matrix(mask: &Mask, mu: f32) -> Result<(CsrMatrix<f32>, CsrMatrix<f32>)> {
+    let matrix_a = matrix_a(mask);
+    let matrix_d = matrix_d(mask.width as usize, mask.height as usize);
 
     // compute B with preallocate
     let pattern_ata = spmm_csr_pattern(&matrix_a.pattern().transpose(), matrix_a.pattern());
@@ -168,13 +316,25 @@ pub fn prepare_matrix(
             "error computing matrix B step 2: {e:?}"
         )));
     }
-    let mut c = DVector::zeros(size);
+    Ok((b_mat, matrix_a))
+}
+
+fn compute_c(matrix_a: &CsrMatrix<f32>, mask: &Mask, layer: &[f32]) -> Vec<f32> {
+    let vector_b = DVector::<f32>::from_vec(
+        layer
+            .iter()
+            .zip(mask.mask.iter())
+            .filter_map(|(p, m)| if *m { Some(*p) } else { None })
+            .collect(),
+    );
+    // c = A^T * b
+    let mut c = DVector::zeros((mask.width * mask.height) as usize);
     spmm_csr_dense(
         0.0,
         &mut c,
         1.0,
-        Op::Transpose(&matrix_a),
+        Op::Transpose(matrix_a),
         Op::NoOp(&vector_b),
     );
-    Ok((b_mat, Vec::from(c.as_slice())))
+    Vec::from(c.as_slice())
 }
