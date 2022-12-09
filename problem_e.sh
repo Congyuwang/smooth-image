@@ -69,5 +69,5 @@ $run in-paint \
   --init zero \
   --tol 0.001 \
   --mu 0.01 \
-  --metric-step 100
-
+  --metric-step 100 \
+  --color false

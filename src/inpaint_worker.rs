@@ -52,6 +52,7 @@ pub fn run_inpaint<I, M, O>(
     tol: f32,
     init_type: InitType,
     metric_step: i32,
+    color: bool,
 ) -> Result<RuntimeStats>
 where
     I: AsRef<Path> + Debug,
@@ -59,7 +60,10 @@ where
     O: AsRef<Path> + Debug,
 {
     let start_time = Instant::now();
-    let image = read_img(image)?;
+    let mut image = read_img(image)?;
+    if !color {
+        image = image.grayscale();
+    }
     let mask = read_img(mask)?;
     let (mask, image) = make_mask_image(mask, image)?;
 
