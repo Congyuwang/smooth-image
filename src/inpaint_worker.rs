@@ -4,6 +4,7 @@ use crate::error::Error::ErrorMessage;
 use crate::error::Result;
 use crate::io::{read_img, resize_img_mask_to_luma, write_png};
 use crate::opt_utils::{matrix_a, matrix_d, psnr};
+use crate::simd::CsrMatrixF32;
 use image::{DynamicImage, GrayImage};
 use nalgebra::DVector;
 use nalgebra_sparse::ops::serial::{
@@ -69,11 +70,12 @@ where
     let (b_mat, c) = prepare_matrix(width, height, orig.as_slice(), mask, mu)?;
     let matrix_generation_time = Instant::now();
     let mut metrics = Vec::<(i32, f32)>::new();
-    let metric_cb = |iter_round, inferred: &DVector<f32>, tol_var: f32| {
-        let psnr = psnr(inferred, &orig);
+    let metric_cb = |iter_round, inferred: &[f32], tol_var: f32| {
+        let psnr = psnr(inferred, orig.as_slice());
         println!("iter={iter_round}, psnr={psnr}, tol_var={tol_var}");
         metrics.push((iter_round, psnr));
     };
+    let b_mat = CsrMatrixF32::from(b_mat);
 
     let (output, iter_round) = match algo {
         OptAlgo::Cg => cg_method(&b_mat, c, x, tol, metric_step, metric_cb)?,
@@ -82,8 +84,6 @@ where
     let optimization_time = Instant::now();
 
     let pixels = output
-        .data
-        .as_slice()
         .iter()
         .map(|p| (*p * 256.0) as u8)
         .collect::<Vec<_>>();
@@ -103,9 +103,10 @@ where
     Ok(runtime_stats)
 }
 
-pub fn gen_random_x(width: usize, height: usize, init_type: InitType) -> DVector<f32> {
+pub fn gen_random_x(width: usize, height: usize, init_type: InitType) -> Vec<f32> {
     let size = width * height;
-    let vec = match init_type {
+
+    match init_type {
         InitType::Rand => {
             let small_rng = SmallRng::from_entropy();
             let uniform = Uniform::<f32>::new(0.0, 1.0);
@@ -117,8 +118,7 @@ pub fn gen_random_x(width: usize, height: usize, init_type: InitType) -> DVector
         InitType::Zero => {
             vec![0.0f32; size]
         }
-    };
-    DVector::from_vec(vec)
+    }
 }
 
 /// compute matrix B and vector c, init y
@@ -128,7 +128,7 @@ pub fn prepare_matrix(
     orig: &[f32],
     mask: &[u8],
     mu: f32,
-) -> Result<(CsrMatrix<f32>, DVector<f32>)> {
+) -> Result<(CsrMatrix<f32>, Vec<f32>)> {
     let size = width * height;
     if mask.len() != size || orig.len() != size {
         return Err(ErrorMessage(
@@ -153,8 +153,7 @@ pub fn prepare_matrix(
         Op::NoOp(&matrix_a),
     ) {
         return Err(ErrorMessage(format!(
-            "error computing matrix B step 1: {:?}",
-            e
+            "error computing matrix B step 1: {e:?}"
         )));
     }
     // B += mu * D^T * D
@@ -166,8 +165,7 @@ pub fn prepare_matrix(
         Op::NoOp(&matrix_d),
     ) {
         return Err(ErrorMessage(format!(
-            "error computing matrix B step 2: {:?}",
-            e
+            "error computing matrix B step 2: {e:?}"
         )));
     }
     let mut c = DVector::zeros(size);
@@ -178,5 +176,5 @@ pub fn prepare_matrix(
         Op::Transpose(&matrix_a),
         Op::NoOp(&vector_b),
     );
-    Ok((b_mat, c))
+    Ok((b_mat, Vec::from(c.as_slice())))
 }

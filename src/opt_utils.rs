@@ -1,10 +1,11 @@
+use crate::simd::metric_distance_squared;
 use nalgebra::DVector;
 use nalgebra_sparse::coo::CooMatrix;
 use nalgebra_sparse::CsrMatrix;
 
-pub fn psnr(inferred: &DVector<f32>, original: &DVector<f32>) -> f32 {
-    let dist = inferred.metric_distance(original);
-    (inferred.nrows() as f32 / (dist * dist)).log10()
+pub fn psnr(inferred: &[f32], original: &[f32]) -> f32 {
+    let norm_sq = metric_distance_squared(inferred, original);
+    (inferred.len() as f32 / norm_sq).log10()
 }
 
 /// build the selection matrix A, and target vector b
