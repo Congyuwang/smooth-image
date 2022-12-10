@@ -164,7 +164,7 @@ pub fn subtract_from(x: &mut [f32], c: &[f32]) {
             ind += LANE;
         }
         for i in x1 {
-            *i += c.get_unchecked(ind);
+            *i -= c.get_unchecked(ind);
             ind += 1;
         }
     }
