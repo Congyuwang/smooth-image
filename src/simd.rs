@@ -1,5 +1,5 @@
 use nalgebra_sparse::CsrMatrix;
-use std::simd::{f32x16, LaneCount, Mask, Simd, SimdFloat, StdFloat, SupportedLaneCount};
+use std::simd::{LaneCount, Mask, Simd, SimdFloat, StdFloat, SupportedLaneCount};
 
 pub const LANE: usize = 16;
 
@@ -44,7 +44,7 @@ pub fn axpy(a: f32, x: &[f32], y: &mut [f32]) {
         }
         for i_sim in y_sim {
             // note that 16 is hard coded here
-            *i_sim += a_sim * sim_from_slice_16(&x[ind..]);
+            *i_sim += a_sim * Simd::<f32, LANE>::from_slice(&x[ind..]);
             ind += LANE;
         }
         for i in y1 {
@@ -68,7 +68,7 @@ pub fn axpby(a: f32, x: &[f32], b: f32, y: &mut [f32]) {
         }
         for i_sim in y_sim {
             // note that 16 is hard coded here
-            *i_sim = i_sim.mul_add(b_sim, a_sim * sim_from_slice_16(&x[ind..]));
+            *i_sim = i_sim.mul_add(b_sim, a_sim * Simd::<f32, LANE>::from_slice(&x[ind..]));
             ind += LANE;
         }
         for i in y1 {
@@ -91,7 +91,7 @@ pub fn dot(a: &[f32], b: &[f32]) -> f32 {
         }
         for i_sim in a_sim {
             // note that 16 is hard coded here
-            dot_sim += i_sim * sim_from_slice_16(&b[ind..]);
+            dot_sim += i_sim * Simd::<f32, LANE>::from_slice(&b[ind..]);
             ind += LANE;
         }
         for i in a1 {
@@ -117,7 +117,7 @@ pub fn metric_distance_squared(a: &[f32], b: &[f32]) -> f32 {
         }
         for i_sim in a_sim {
             // note that 16 is hard coded here
-            let diff_sim = i_sim - sim_from_slice_16(&b[ind..]);
+            let diff_sim = i_sim - Simd::<f32, LANE>::from_slice(&b[ind..]);
             sq_sum_sim += diff_sim * diff_sim;
             ind += LANE;
         }
@@ -160,7 +160,7 @@ pub fn subtract_from(x: &mut [f32], c: &[f32]) {
         }
         for i_sim in x_sim {
             // note that 16 is hard coded here
-            *i_sim -= sim_from_slice_16(&c[ind..]);
+            *i_sim -= Simd::<f32, LANE>::from_slice(&c[ind..]);
             ind += LANE;
         }
         for i in x1 {
@@ -196,7 +196,7 @@ pub fn copy_simd(x: &mut [f32], c: &[f32]) {
         }
         for i_sim in x_sim {
             // note that 16 is hard coded here
-            *i_sim = sim_from_slice_16(&c[ind..]);
+            *i_sim = Simd::<f32, LANE>::from_slice(&c[ind..]);
             ind += LANE;
         }
         for i in x1 {
@@ -358,7 +358,7 @@ where
         }
         for i_sim in col_sim {
             // note that 16 is hard coded here
-            dot_sim += i_sim * sim_from_slice_index::<LANE>(b, &col_indices[ind..]);
+            dot_sim += i_sim * gather_select::<LANE>(b, &col_indices[ind..]);
             ind += LANE;
         }
         for i in col1 {
@@ -383,7 +383,7 @@ unsafe fn dot_i_loop<const N: usize>(col_indices: &[usize], values: &[f32], b: &
 }
 
 #[inline(always)]
-unsafe fn sim_from_slice_index<const LANE: usize>(
+unsafe fn gather_select<const LANE: usize>(
     full_slice: &[f32],
     index: &[usize],
 ) -> Simd<f32, LANE>
@@ -394,28 +394,6 @@ where
     let enable = Mask::<isize, LANE>::splat(true);
     let or = Simd::<f32, LANE>::splat(0.0f32);
     unsafe { Simd::<f32, LANE>::gather_select_unchecked(full_slice, enable, idxs, or) }
-}
-
-#[inline(always)]
-unsafe fn sim_from_slice_16(slice: &[f32]) -> f32x16 {
-    f32x16::from_array([
-        *slice.get_unchecked(0),
-        *slice.get_unchecked(1),
-        *slice.get_unchecked(2),
-        *slice.get_unchecked(3),
-        *slice.get_unchecked(4),
-        *slice.get_unchecked(5),
-        *slice.get_unchecked(6),
-        *slice.get_unchecked(7),
-        *slice.get_unchecked(8),
-        *slice.get_unchecked(9),
-        *slice.get_unchecked(10),
-        *slice.get_unchecked(11),
-        *slice.get_unchecked(12),
-        *slice.get_unchecked(13),
-        *slice.get_unchecked(14),
-        *slice.get_unchecked(15),
-    ])
 }
 
 impl CsrMatrixF32 {
