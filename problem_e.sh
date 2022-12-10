@@ -1,4 +1,4 @@
-build='cargo rustc --release -- -C target-cpu=apple-m1 -C target-feature=+neon'
+build='cargo rustc --release -- -C target-cpu=native'
 run='./target/release/smooth-image'
 
 $build || exit
