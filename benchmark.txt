@@ -1,0 +1,25 @@
+Benchmarking Example 3 (4096*4096) Mono
+---
+mac 15 air
+
+base: 265ms 110us
+acce: 170ms 357us
+simd: 183ms 911us
+par:  384ms 218us
+
+---
+linux 15 air
+
+base: 241ms 660us
+acce: NAms  NAus
+simd: 173ms 271us
+par:  358ms 179us
+
+---
+mac m2 air
+
+base: 87ms 362us
+acce: 41ms 746us
+simd: 46ms 412us
+par:  78ms 266us
+
