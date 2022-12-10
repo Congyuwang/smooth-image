@@ -17,7 +17,8 @@ $run in-paint \
   --init zero \
   --tol 0.0001 \
   --mu 0.01 \
-  --metric-step 10
+  --metric-step 10 \
+  --mono
 
 $run in-paint \
   -i test/test_images/1024_1024_books.jpg \
@@ -27,7 +28,8 @@ $run in-paint \
   --init zero \
   --tol 0.0001 \
   --mu 0.01 \
-  --metric-step 10
+  --metric-step 10 \
+  --mono
 
 $run in-paint \
   -i test/test_images/4096_4096_husky.jpg \
@@ -37,7 +39,8 @@ $run in-paint \
   --init zero \
   --tol 0.0001 \
   --mu 0.01 \
-  --metric-step 10
+  --metric-step 10 \
+  --mono
 
 echo Running AG Algorithm
 
@@ -49,7 +52,8 @@ $run in-paint \
   --init zero \
   --tol 0.0001 \
   --mu 0.01 \
-  --metric-step 100
+  --metric-step 100 \
+  --mono
 
 $run in-paint \
   -i test/test_images/1024_1024_books.jpg \
@@ -59,7 +63,8 @@ $run in-paint \
   --init zero \
   --tol 0.0001 \
   --mu 0.01 \
-  --metric-step 100
+  --metric-step 100 \
+  --mono
 
 $run in-paint \
   -i test/test_images/4096_4096_husky.jpg \
