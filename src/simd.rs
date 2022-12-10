@@ -186,24 +186,8 @@ pub fn neg(x: &mut [f32]) {
 }
 
 #[inline(always)]
-pub fn copy_simd(x: &mut [f32], c: &[f32]) {
-    let mut ind = 0usize;
-    let (x0, x_sim, x1) = x.as_simd_mut::<LANE>();
-    unsafe {
-        for i in x0 {
-            *i = *c.get_unchecked(ind);
-            ind += 1;
-        }
-        for i_sim in x_sim {
-            // note that 16 is hard coded here
-            *i_sim = Simd::<f32, LANE>::from_slice(&c[ind..]);
-            ind += LANE;
-        }
-        for i in x1 {
-            *i = *c.get_unchecked(ind);
-            ind += 1;
-        }
-    }
+pub fn copy(x: &mut [f32], c: &[f32]) {
+    c.iter().zip(x.iter_mut()).for_each(|(v, v2)| *v2 = *v);
 }
 
 #[inline(always)]
