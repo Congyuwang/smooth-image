@@ -98,7 +98,11 @@ pub fn make_mask(mask: Im, width: u32, height: u32) -> Result<Mask> {
                 pass_through
             })
             .collect(),
-        _ => return Err(ErrorMessage("unsupported mask format, only allow luma8".to_string())),
+        _ => {
+            return Err(ErrorMessage(
+                "unsupported mask format, only allow luma8".to_string(),
+            ))
+        }
     };
     Ok(Mask {
         height,

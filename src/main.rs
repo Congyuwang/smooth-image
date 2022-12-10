@@ -66,7 +66,7 @@ struct InPaint {
     metric_step: i32,
     /// produces mono-color-image
     #[arg(long, default_value_t = false)]
-    mono: bool
+    mono: bool,
 }
 
 #[derive(Tabled)]
@@ -141,7 +141,7 @@ fn main() {
                 inpaint.tol,
                 init,
                 inpaint.metric_step,
-                !inpaint.mono
+                !inpaint.mono,
             ) {
                 Err(e) => {
                     println!("Error executing inpaint: {e:?}");

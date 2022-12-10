@@ -94,16 +94,14 @@ where
             OptAlgo::Ag => ag_method(&b_mat, c, mu, x, tol, metric_step, metric_cb),
         };
         match run_result {
-            Ok((output, iter_round)) => {
-                Ok((output, iter_round, metrics))
-            },
+            Ok((output, iter_round)) => Ok((output, iter_round, metrics)),
             Err(e) => Err(e),
         }
     };
 
     let output = match &image {
         ImageFormat::Luma { width, height, l } => {
-            let (output, rounds, metrics) = layer_worker(0 , l.as_slice())?;
+            let (output, rounds, metrics) = layer_worker(0, l.as_slice())?;
             ProcessOutput {
                 output: ImageFormat::Luma {
                     width: *width,
