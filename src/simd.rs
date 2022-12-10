@@ -383,10 +383,7 @@ unsafe fn dot_i_loop<const N: usize>(col_indices: &[usize], values: &[f32], b: &
 }
 
 #[inline(always)]
-unsafe fn gather_select<const LANE: usize>(
-    full_slice: &[f32],
-    index: &[usize],
-) -> Simd<f32, LANE>
+unsafe fn gather_select<const LANE: usize>(full_slice: &[f32], index: &[usize]) -> Simd<f32, LANE>
 where
     LaneCount<LANE>: SupportedLaneCount,
 {

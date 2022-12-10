@@ -16,9 +16,9 @@ use rand::distributions::Distribution;
 use rand::distributions::Uniform;
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
-use rayon::scope;
 use std::fmt::Debug;
 use std::path::Path;
+use std::thread::scope;
 use std::time::Instant;
 
 #[derive(Copy, Clone)]
@@ -118,15 +118,10 @@ where
             l,
             a,
         } => {
-            let mut l_output = None;
-            let mut a_output = None;
-            scope(|s| {
-                s.spawn(|_| {
-                    l_output = Some(layer_worker(0, l.as_slice()));
-                });
-                s.spawn(|_| {
-                    a_output = Some(layer_worker(1, a.as_slice()));
-                })
+            let (l_output, a_output) = scope(|s| {
+                let l_output = s.spawn(|| layer_worker(0, l.as_slice()));
+                let a_output = s.spawn(|| layer_worker(1, a.as_slice()));
+                (l_output.join(), a_output.join())
             });
             let (l_output, l_rounds, l_metrics) = l_output.unwrap()?;
             let (a_output, a_rounds, a_metrics) = a_output.unwrap()?;
@@ -152,19 +147,11 @@ where
             g,
             b,
         } => {
-            let mut r_output = None;
-            let mut g_output = None;
-            let mut b_output = None;
-            scope(|s| {
-                s.spawn(|_| {
-                    r_output = Some(layer_worker(0, r.as_slice()));
-                });
-                s.spawn(|_| {
-                    g_output = Some(layer_worker(1, g.as_slice()));
-                });
-                s.spawn(|_| {
-                    b_output = Some(layer_worker(2, b.as_slice()));
-                })
+            let (r_output, g_output, b_output) = scope(|s| {
+                let r_output = s.spawn(|| layer_worker(0, r.as_slice()));
+                let g_output = s.spawn(|| layer_worker(1, g.as_slice()));
+                let b_output = s.spawn(|| layer_worker(2, b.as_slice()));
+                (r_output.join(), g_output.join(), b_output.join())
             });
             let (r_output, r_rounds, r_metrics) = r_output.unwrap()?;
             let (g_output, g_rounds, g_metrics) = g_output.unwrap()?;
@@ -196,23 +183,17 @@ where
             b,
             a,
         } => {
-            let mut r_output = None;
-            let mut g_output = None;
-            let mut b_output = None;
-            let mut a_output = None;
-            scope(|s| {
-                s.spawn(|_| {
-                    r_output = Some(layer_worker(0, r.as_slice()));
-                });
-                s.spawn(|_| {
-                    g_output = Some(layer_worker(1, g.as_slice()));
-                });
-                s.spawn(|_| {
-                    b_output = Some(layer_worker(2, b.as_slice()));
-                });
-                s.spawn(|_| {
-                    a_output = Some(layer_worker(3, a.as_slice()));
-                })
+            let (r_output, g_output, b_output, a_output) = scope(|s| {
+                let r_output = s.spawn(|| layer_worker(0, r.as_slice()));
+                let g_output = s.spawn(|| layer_worker(1, g.as_slice()));
+                let b_output = s.spawn(|| layer_worker(2, b.as_slice()));
+                let a_output = s.spawn(|| layer_worker(3, a.as_slice()));
+                (
+                    r_output.join(),
+                    g_output.join(),
+                    b_output.join(),
+                    a_output.join(),
+                )
             });
             let (r_output, r_rounds, r_metrics) = r_output.unwrap()?;
             let (g_output, g_rounds, g_metrics) = g_output.unwrap()?;
