@@ -1,6 +1,4 @@
 #![feature(portable_simd)]
-#![feature(get_many_mut)]
-#![feature(iter_array_chunks)]
 #![feature(array_chunks)]
 
 use crate::inpaint_worker::{run_inpaint, InitType, OptAlgo, RuntimeStats};
