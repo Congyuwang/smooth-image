@@ -398,7 +398,10 @@ mod simd_test {
     fn test_metric() {
         let a = vec![1., 2., 3., 4., 5.];
         let b = vec![5., 4., 3., 2., 1.];
-        assert_eq!(metric_distance_squared(&a, &b), metric_distance_squared_slow(&a, &b));
+        assert_eq!(
+            metric_distance_squared(&a, &b),
+            metric_distance_squared_slow(&a, &b)
+        );
     }
 
     #[test]
