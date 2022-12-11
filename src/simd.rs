@@ -270,22 +270,86 @@ unsafe fn dot_i_lane(
     let p15 = *row_offsets.get_unchecked(i + 15);
     let p16 = *row_offsets.get_unchecked(i + 16);
     Simd::<f32, LANE>::from_array([
-        dot_i(&col_indices[p0..p1], &values[p0..p1], b),
-        dot_i(&col_indices[p1..p2], &values[p1..p2], b),
-        dot_i(&col_indices[p2..p3], &values[p2..p3], b),
-        dot_i(&col_indices[p3..p4], &values[p3..p4], b),
-        dot_i(&col_indices[p4..p5], &values[p4..p5], b),
-        dot_i(&col_indices[p5..p6], &values[p5..p6], b),
-        dot_i(&col_indices[p6..p7], &values[p6..p7], b),
-        dot_i(&col_indices[p7..p8], &values[p7..p8], b),
-        dot_i(&col_indices[p8..p9], &values[p8..p9], b),
-        dot_i(&col_indices[p9..p10], &values[p9..p10], b),
-        dot_i(&col_indices[p10..p11], &values[p10..p11], b),
-        dot_i(&col_indices[p11..p12], &values[p11..p12], b),
-        dot_i(&col_indices[p12..p13], &values[p12..p13], b),
-        dot_i(&col_indices[p13..p14], &values[p13..p14], b),
-        dot_i(&col_indices[p14..p15], &values[p14..p15], b),
-        dot_i(&col_indices[p15..p16], &values[p15..p16], b),
+        dot_i(
+            col_indices.get_unchecked(p0..p1),
+            values.get_unchecked(p0..p1),
+            b,
+        ),
+        dot_i(
+            col_indices.get_unchecked(p1..p2),
+            values.get_unchecked(p1..p2),
+            b,
+        ),
+        dot_i(
+            col_indices.get_unchecked(p2..p3),
+            values.get_unchecked(p2..p3),
+            b,
+        ),
+        dot_i(
+            col_indices.get_unchecked(p3..p4),
+            values.get_unchecked(p3..p4),
+            b,
+        ),
+        dot_i(
+            col_indices.get_unchecked(p4..p5),
+            values.get_unchecked(p4..p5),
+            b,
+        ),
+        dot_i(
+            col_indices.get_unchecked(p5..p6),
+            values.get_unchecked(p5..p6),
+            b,
+        ),
+        dot_i(
+            col_indices.get_unchecked(p6..p7),
+            values.get_unchecked(p6..p7),
+            b,
+        ),
+        dot_i(
+            col_indices.get_unchecked(p7..p8),
+            values.get_unchecked(p7..p8),
+            b,
+        ),
+        dot_i(
+            col_indices.get_unchecked(p8..p9),
+            values.get_unchecked(p8..p9),
+            b,
+        ),
+        dot_i(
+            col_indices.get_unchecked(p9..p10),
+            values.get_unchecked(p9..p10),
+            b,
+        ),
+        dot_i(
+            col_indices.get_unchecked(p10..p11),
+            values.get_unchecked(p10..p11),
+            b,
+        ),
+        dot_i(
+            col_indices.get_unchecked(p11..p12),
+            values.get_unchecked(p11..p12),
+            b,
+        ),
+        dot_i(
+            col_indices.get_unchecked(p12..p13),
+            values.get_unchecked(p12..p13),
+            b,
+        ),
+        dot_i(
+            col_indices.get_unchecked(p13..p14),
+            values.get_unchecked(p13..p14),
+            b,
+        ),
+        dot_i(
+            col_indices.get_unchecked(p14..p15),
+            values.get_unchecked(p14..p15),
+            b,
+        ),
+        dot_i(
+            col_indices.get_unchecked(p15..p16),
+            values.get_unchecked(p15..p16),
+            b,
+        ),
     ])
 }
 
