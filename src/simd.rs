@@ -317,7 +317,7 @@ where
     let mut dot = 0.0f32;
     let (v0, v_sim, v1) = values.as_simd::<LANE>();
     let p0 = v0.len();
-    let p1 = p0 + v1.len() * LANE;
+    let p1 = p0 + v_sim.len() * LANE;
     let (c0, c_sim, c1) = (
         &col_indices[..p0],
         col_indices[p0..p1]
