@@ -1,6 +1,8 @@
 use crate::error::Error::ErrorMessage;
 use crate::error::Result;
-use crate::simd::{axpby, axpy, dot, neg, norm_squared, spmmv_dense, CsrMatrixF32};
+use crate::simd::{
+    axpby, axpy, dot, neg, norm_squared, sparse_matrix_vector_prod, spmmv_dense, CsrMatrixF32,
+};
 
 /// B_mat = A^T * A + mu * D^T * D
 /// c = A^T * b
@@ -26,7 +28,7 @@ fn cg_method_unchecked<CB: FnMut(i32, &[f32], f32)>(
         // ||r||2
         let r_norm_squared = norm_squared(r);
         // b * p (the only allocation in the loop)
-        spmmv_dense(0.0, &mut bp, 1.0, b_mat, &p);
+        sparse_matrix_vector_prod(&mut bp, b_mat, &p);
         // alpha = ||r||2 / (p' * b * p)
         let alpha = r_norm_squared / dot(&p, &bp);
         // x = x + alpha * p

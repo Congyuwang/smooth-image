@@ -25,7 +25,7 @@ pub fn spmmv_dense(beta: f32, c: &mut [f32], alpha: f32, a: &CsrMatrixF32, b: &[
 
     if beta == 0.0 && alpha == 1.0 {
         // c = A * b
-        sparse_matrix_vector_prod(c, row_offsets, col_indices, values, b)
+        sparse_matrix_vector_prod(c, a, b)
     } else {
         mpmmv_full(beta, c, alpha, row_offsets, col_indices, values, b)
     }
@@ -215,13 +215,10 @@ fn mpmmv_full(
 
 /// c = A * b
 #[inline(always)]
-fn sparse_matrix_vector_prod(
-    c: &mut [f32],
-    row_offsets: &[usize],
-    col_indices: &[usize],
-    values: &[f32],
-    b: &[f32],
-) {
+pub fn sparse_matrix_vector_prod(c: &mut [f32], a: &CsrMatrixF32, b: &[f32]) {
+    let row_offsets = a.row_offsets.as_slice();
+    let col_indices = a.col_indices.as_slice();
+    let values = a.values.as_slice();
     let (c0, c_sim, c1) = c.as_simd_mut::<LANE>();
     let mut ind = 0usize;
     unsafe {
