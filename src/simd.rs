@@ -106,6 +106,7 @@ pub fn dot(a: &[f32], b: &[f32]) -> f32 {
     dot
 }
 
+#[inline(always)]
 fn dot_slow(a: &[f32], b: &[f32]) -> f32 {
     a.iter()
         .zip(b.iter().copied())
