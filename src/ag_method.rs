@@ -1,5 +1,5 @@
 use crate::error::{Error::ErrorMessage, Result};
-use crate::simd::{axpby, copy, norm_squared, spmmv_dense, subtract_from, CsrMatrixF32};
+use crate::simd::{axpby, norm_squared, spmmv_dense, subtract_from, CsrMatrixF32};
 
 /// f(x) = ||a * x - b ||^2 / 2 + mu / 2 * ||D * x||^2
 /// Df(x) = (A^T * A + mu * D^T * D) * x - A^T * b
@@ -31,10 +31,10 @@ fn ag_method_unchecked<CB: FnMut(i32, &[f32], f32)>(
         // execute the following x = (1 + beta) * z * x - beta * z * x_old + alpha * c;
 
         // 1. x_tmp for memorizing x
-        copy(&mut x_tmp, &x);
+        x_tmp.copy_from_slice(&x);
         // 2. x is now y^k+1
         axpby(-beta, &x_old, 1.0 + beta, &mut x);
-        copy(&mut y, &x);
+        y.copy_from_slice(&x);
         // 3. x is now Df(y^k+1)
         spmmv_dense(0.0, &mut x, 1.0, b_mat, &y);
         subtract_from(&mut x, &c);
@@ -49,7 +49,7 @@ fn ag_method_unchecked<CB: FnMut(i32, &[f32], f32)>(
         // 4. x in now x^k+1
         axpby(1.0, &y, -alpha, &mut x);
         // 5. put x_tmp back
-        copy(&mut x_old, &x_tmp);
+        x_old.copy_from_slice(&x_tmp);
 
         // update beta
         let t_new = 0.5 + 0.5 * (1.0 + 4.0 * t * t).sqrt();

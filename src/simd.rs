@@ -25,7 +25,7 @@ pub fn spmmv_dense(beta: f32, c: &mut [f32], alpha: f32, a: &CsrMatrixF32, b: &[
 
     if beta == 0.0 && alpha == 1.0 {
         // c = A * b
-        matrix_vector_prod(c, row_offsets, col_indices, values, b)
+        sparse_matrix_vector_prod(c, row_offsets, col_indices, values, b)
     } else {
         mpmmv_full(beta, c, alpha, row_offsets, col_indices, values, b)
     }
@@ -34,101 +34,117 @@ pub fn spmmv_dense(beta: f32, c: &mut [f32], alpha: f32, a: &CsrMatrixF32, b: &[
 /// y <- a * x + y
 #[inline(always)]
 pub fn axpy(a: f32, x: &[f32], y: &mut [f32]) {
-    let mut ind = 0usize;
     let (y0, y_sim, y1) = y.as_simd_mut::<LANE>();
+    let len0 = y0.len();
+    let len1 = len0 + y_sim.len() * LANE;
+    let (x0, x_sim, x1) = (
+        &x[..len0],
+        x[len0..len1]
+            .array_chunks()
+            .map(|&b| Simd::<f32, LANE>::from_array(b)),
+        &x[len1..],
+    );
     let a_sim = Simd::<f32, LANE>::splat(a);
-    unsafe {
-        for i in y0 {
-            *i += a * x.get_unchecked(ind);
-            ind += 1;
-        }
-        for i_sim in y_sim {
-            // note that 16 is hard coded here
-            *i_sim += a_sim * Simd::<f32, LANE>::from_slice(&x[ind..]);
-            ind += LANE;
-        }
-        for i in y1 {
-            *i += a * x.get_unchecked(ind);
-            ind += 1;
-        }
-    }
+    y_sim
+        .iter_mut()
+        .zip(x_sim)
+        .for_each(|(y, x)| *y += a_sim * x);
+    y0.iter_mut().zip(x0).for_each(|(y, x)| *y += a * x);
+    y1.iter_mut().zip(x1).for_each(|(y, x)| *y += a * x);
 }
 
 /// y <- a * x + b * y
 #[inline(always)]
 pub fn axpby(a: f32, x: &[f32], b: f32, y: &mut [f32]) {
-    let mut ind = 0usize;
     let (y0, y_sim, y1) = y.as_simd_mut::<LANE>();
+    let len0 = y0.len();
+    let len1 = len0 + y_sim.len() * LANE;
+    let (x0, x_sim, x1) = (
+        &x[..len0],
+        x[len0..len1]
+            .array_chunks()
+            .map(|&b| Simd::<f32, LANE>::from_array(b)),
+        &x[len1..],
+    );
     let a_sim = Simd::<f32, LANE>::splat(a);
     let b_sim = Simd::<f32, LANE>::splat(b);
-    unsafe {
-        for i in y0 {
-            *i = i.mul_add(b, a * x.get_unchecked(ind));
-            ind += 1;
-        }
-        for i_sim in y_sim {
-            // note that 16 is hard coded here
-            *i_sim = i_sim.mul_add(b_sim, a_sim * Simd::<f32, LANE>::from_slice(&x[ind..]));
-            ind += LANE;
-        }
-        for i in y1 {
-            *i = i.mul_add(b, a * x.get_unchecked(ind));
-            ind += 1;
-        }
-    }
+    y_sim
+        .iter_mut()
+        .zip(x_sim)
+        .for_each(|(y, x)| *y = y.mul_add(b_sim, a_sim * x));
+    y0.iter_mut()
+        .zip(x0)
+        .for_each(|(y, x)| *y = y.mul_add(b, a * x));
+    y1.iter_mut()
+        .zip(x1)
+        .for_each(|(y, x)| *y = y.mul_add(b, a * x));
 }
 
 #[inline(always)]
 pub fn dot(a: &[f32], b: &[f32]) -> f32 {
     let mut dot = 0.0f32;
-    let mut dot_sim = Simd::<f32, LANE>::splat(0.0f32);
-    let mut ind = 0usize;
     let (a0, a_sim, a1) = a.as_simd::<LANE>();
-    unsafe {
-        for i in a0 {
-            dot += i * b.get_unchecked(ind);
-            ind += 1;
-        }
-        for i_sim in a_sim {
-            // note that 16 is hard coded here
-            dot_sim += i_sim * Simd::<f32, LANE>::from_slice(&b[ind..]);
-            ind += LANE;
-        }
-        for i in a1 {
-            dot += i * b.get_unchecked(ind);
-            ind += 1;
-        }
-    }
-    dot += dot_sim.reduce_sum();
+    let p0 = a0.len();
+    let p1 = p0 + a_sim.len() * LANE;
+    let (b0, b_sim, b1) = (
+        &b[..p0],
+        b[p0..p1]
+            .array_chunks()
+            .copied()
+            .map(Simd::<f32, LANE>::from_array),
+        &b[p1..],
+    );
+    dot += a_sim
+        .iter()
+        .zip(b_sim)
+        .fold(Simd::<f32, LANE>::splat(0.0f32), |acc, (a, b)| {
+            a.mul_add(b, acc)
+        })
+        .reduce_sum();
+    dot += dot_slow(a0, b0);
+    dot += dot_slow(a1, b1);
     dot
+}
+
+fn dot_slow(a: &[f32], b: &[f32]) -> f32 {
+    a.iter()
+        .zip(b.iter().copied())
+        .fold(0.0, |acc, (a0, b0)| a0.mul_add(b0, acc))
 }
 
 #[inline(always)]
 pub fn metric_distance_squared(a: &[f32], b: &[f32]) -> f32 {
-    let mut sq_sum = 0.0f32;
-    let mut sq_sum_sim = Simd::<f32, LANE>::splat(0.0f32);
-    let mut ind = 0usize;
+    let mut dot = 0.0f32;
     let (a0, a_sim, a1) = a.as_simd::<LANE>();
-    unsafe {
-        for i in a0 {
-            let diff = i - b.get_unchecked(ind);
-            sq_sum += diff * diff;
-            ind += 1;
-        }
-        for i_sim in a_sim {
-            // note that 16 is hard coded here
-            let diff_sim = i_sim - Simd::<f32, LANE>::from_slice(&b[ind..]);
-            sq_sum_sim += diff_sim * diff_sim;
-            ind += LANE;
-        }
-        for i in a1 {
-            let diff = i - b.get_unchecked(ind);
-            sq_sum += diff * diff;
-            ind += 1;
-        }
-    }
-    sq_sum += sq_sum_sim.reduce_sum();
-    sq_sum
+    let p0 = a0.len();
+    let p1 = p0 + a_sim.len() * LANE;
+    let (b0, b_sim, b1) = (
+        &b[..p0],
+        b[p0..p1]
+            .array_chunks()
+            .copied()
+            .map(Simd::<f32, LANE>::from_array),
+        &b[p1..],
+    );
+    dot += a_sim
+        .iter()
+        .zip(b_sim)
+        .fold(Simd::<f32, LANE>::splat(0.0f32), |acc, (a, b)| {
+            let d = a - b;
+            d.mul_add(d, acc)
+        })
+        .reduce_sum();
+    dot += metric_distance_squared_slow(a0, b0);
+    dot += metric_distance_squared_slow(a1, b1);
+    dot
+}
+
+#[inline(always)]
+fn metric_distance_squared_slow(a: &[f32], b: &[f32]) -> f32 {
+    a.iter().zip(b.iter()).fold(0.0, |acc, (a, b)| {
+        let d = a - b;
+        d.mul_add(d, acc)
+    })
 }
 
 #[inline(always)]
@@ -137,13 +153,13 @@ pub fn norm_squared(v: &[f32]) -> f32 {
     let mut norm_sim = Simd::<f32, LANE>::splat(0.0f32);
     let (v0, v_sim, v1) = v.as_simd::<LANE>();
     for i in v0 {
-        norm += i * i;
+        norm = i.mul_add(*i, norm);
     }
     for i in v1 {
-        norm += i * i;
+        norm = i.mul_add(*i, norm);
     }
     for i_sim in v_sim {
-        norm_sim += i_sim * i_sim;
+        norm_sim = i_sim.mul_add(*i_sim, norm_sim);
     }
     norm += norm_sim.reduce_sum();
     norm
@@ -151,43 +167,12 @@ pub fn norm_squared(v: &[f32]) -> f32 {
 
 #[inline(always)]
 pub fn subtract_from(x: &mut [f32], c: &[f32]) {
-    let mut ind = 0usize;
-    let (x0, x_sim, x1) = x.as_simd_mut::<LANE>();
-    unsafe {
-        for i in x0 {
-            *i -= c.get_unchecked(ind);
-            ind += 1;
-        }
-        for i_sim in x_sim {
-            // note that 16 is hard coded here
-            *i_sim -= Simd::<f32, LANE>::from_slice(&c[ind..]);
-            ind += LANE;
-        }
-        for i in x1 {
-            *i -= c.get_unchecked(ind);
-            ind += 1;
-        }
-    }
+    x.iter_mut().zip(c).for_each(|(x, c)| *x -= c);
 }
 
 #[inline(always)]
 pub fn neg(x: &mut [f32]) {
-    let (x0, x_sim, x1) = x.as_simd_mut::<LANE>();
-    for i in x0 {
-        *i = -*i;
-    }
-    for i_sim in x_sim {
-        // note that 16 is hard coded here
-        *i_sim = -*i_sim;
-    }
-    for i in x1 {
-        *i = -*i;
-    }
-}
-
-#[inline(always)]
-pub fn copy(x: &mut [f32], c: &[f32]) {
-    c.iter().zip(x.iter_mut()).for_each(|(v, v2)| *v2 = *v);
+    x.iter_mut().for_each(|x| *x = -*x);
 }
 
 #[inline(always)]
@@ -213,7 +198,6 @@ fn mpmmv_full(
             ind += 1;
         }
         for i_sim in c_sim {
-            // note that 16 is hard coded here
             let dot_sim = dot_i_lane(ind, row_offsets, col_indices, values, b);
             *i_sim = i_sim.mul_add(beta_sim, dot_sim * alpha_sim);
             ind += LANE;
@@ -229,8 +213,8 @@ fn mpmmv_full(
 }
 
 /// c = A * b
-#[inline]
-fn matrix_vector_prod(
+#[inline(always)]
+fn sparse_matrix_vector_prod(
     c: &mut [f32],
     row_offsets: &[usize],
     col_indices: &[usize],
@@ -247,7 +231,6 @@ fn matrix_vector_prod(
             ind += 1;
         }
         for i_sim in c_sim {
-            // note that 16 is hard coded here
             *i_sim = dot_i_lane(ind, row_offsets, col_indices, values, b);
             ind += LANE;
         }
@@ -341,7 +324,6 @@ where
             ind += 1;
         }
         for i_sim in col_sim {
-            // note that 16 is hard coded here
             dot_sim += i_sim * gather_select::<LANE>(b, &col_indices[ind..]);
             ind += LANE;
         }
@@ -361,7 +343,7 @@ unsafe fn dot_i_loop<const N: usize>(col_indices: &[usize], values: &[f32], b: &
         let col_idx = *col_indices.get_unchecked(j);
         let b_j = b.get_unchecked(col_idx);
         let a_ij = values.get_unchecked(j);
-        sum += b_j * a_ij;
+        sum = b_j.mul_add(*a_ij, sum);
     }
     sum
 }
@@ -399,5 +381,61 @@ impl From<CsrMatrix<f32>> for CsrMatrixF32 {
             col_indices,
             values,
         }
+    }
+}
+
+#[cfg(test)]
+mod simd_test {
+    use super::*;
+
+    #[test]
+    fn test_norm() {
+        let a = vec![1., 2., 3., 4., 5.];
+        assert_eq!(norm_squared(&a), a.iter().map(|a| a * a).sum());
+    }
+
+    #[test]
+    fn test_metric() {
+        let a = vec![1., 2., 3., 4., 5.];
+        let b = vec![5., 4., 3., 2., 1.];
+        assert_eq!(metric_distance_squared(&a, &b), metric_distance_squared_slow(&a, &b));
+    }
+
+    #[test]
+    fn test_axbpy() {
+        let x = vec![1., 2., 3., 4., 5.];
+        let mut y = vec![5., 4., 3., 2., 1.];
+        axpby(2.0, &x, -1.0, &mut y);
+        assert_eq!(y, vec![-3., 0., 3., 6., 9.])
+    }
+
+    #[test]
+    fn test_axpy() {
+        let x = vec![1., 2., 3., 4., 5.];
+        let mut y = vec![5., 4., 3., 2., 1.];
+        axpy(2.0, &x, &mut y);
+        assert_eq!(y, vec![7., 8., 9., 10., 11.])
+    }
+
+    #[test]
+    fn test_dot() {
+        let a = vec![1., 2., 3., 4., 5.];
+        let b = vec![5., 4., 3., 2., 1.];
+        assert_eq!(dot(&a, &b), dot_slow(&a, &b));
+    }
+
+    #[test]
+    fn test_neg() {
+        let mut a = vec![1., 2., 3., 4., 5.];
+        neg(&mut a);
+        assert_eq!(a, vec![-1., -2., -3., -4., -5.])
+    }
+
+    #[test]
+    fn test_sub() {
+        let x = vec![1., 2., 3., 4., 5.];
+        let mut y = vec![5., 4., 3., 2., 1.];
+        subtract_from(&mut y, &x);
+        assert_eq!(y, vec![4., 2., 0., -2., -4.])
     }
 }
