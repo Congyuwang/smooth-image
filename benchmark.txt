@@ -20,6 +20,6 @@ mac m2 air
 
 base: 87ms 362us
 acce: 41ms 746us
-simd: 46ms 412us
+simd: 44ms 946us
 par:  78ms 266us
 
