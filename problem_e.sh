@@ -1,4 +1,9 @@
-build='cargo rustc --release -- -C target-cpu=native'
+if [ "$(uname -m)" == 'arm64' ]; then
+  build='cargo rustc --release -- -C target-cpu=native -C target-feature=+neon'
+else
+  build='cargo rustc --release -- -C target-cpu=native'
+fi
+
 run='./target/release/smooth-image'
 
 $build || exit
