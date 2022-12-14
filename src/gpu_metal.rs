@@ -160,7 +160,7 @@ impl GpuLib {
         layer: Buffer,
         mu: f32,
         x: Buffer,
-    ) -> (Buffer, [Buffer; 15]) {
+    ) -> (Buffer, [Buffer; 14]) {
         let arg_x = ArgumentDescriptor::new();
         arg_x.set_data_type(MTLDataType::Pointer);
         arg_x.set_index(0);
@@ -177,38 +177,35 @@ impl GpuLib {
         let arg_grad_norm = ArgumentDescriptor::new();
         arg_grad_norm.set_data_type(MTLDataType::Pointer);
         arg_grad_norm.set_index(4);
-        let arg_dot = ArgumentDescriptor::new();
-        arg_dot.set_data_type(MTLDataType::Pointer);
-        arg_dot.set_index(5);
         let arg_diff_squared = ArgumentDescriptor::new();
         arg_diff_squared.set_data_type(MTLDataType::Pointer);
-        arg_diff_squared.set_index(6);
+        arg_diff_squared.set_index(5);
 
         let arg_alpha = ArgumentDescriptor::new();
         arg_alpha.set_data_type(MTLDataType::Pointer);
-        arg_alpha.set_index(7);
+        arg_alpha.set_index(6);
         let arg_beta = ArgumentDescriptor::new();
         arg_beta.set_data_type(MTLDataType::Pointer);
-        arg_beta.set_index(8);
+        arg_beta.set_index(7);
         let arg_t = ArgumentDescriptor::new();
         arg_t.set_data_type(MTLDataType::Pointer);
-        arg_t.set_index(9);
+        arg_t.set_index(8);
 
         let arg_c = ArgumentDescriptor::new();
         arg_c.set_data_type(MTLDataType::Pointer);
-        arg_c.set_index(10);
+        arg_c.set_index(9);
         let arg_row_offsets = ArgumentDescriptor::new();
         arg_row_offsets.set_data_type(MTLDataType::Pointer);
-        arg_row_offsets.set_index(11);
+        arg_row_offsets.set_index(10);
         let arg_col_indices = ArgumentDescriptor::new();
         arg_col_indices.set_data_type(MTLDataType::Pointer);
-        arg_col_indices.set_index(12);
+        arg_col_indices.set_index(11);
         let arg_values = ArgumentDescriptor::new();
         arg_values.set_data_type(MTLDataType::Pointer);
-        arg_values.set_index(13);
+        arg_values.set_index(12);
         let arg_original = ArgumentDescriptor::new();
         arg_original.set_data_type(MTLDataType::Pointer);
-        arg_original.set_index(14);
+        arg_original.set_index(13);
 
         let encoder = self.device.new_argument_encoder(Array::from_slice(&[
             arg_x,
@@ -216,7 +213,6 @@ impl GpuLib {
             arg_x_old,
             arg_y,
             arg_grad_norm,
-            arg_dot,
             arg_diff_squared,
             arg_alpha,
             arg_beta,
@@ -242,12 +238,10 @@ impl GpuLib {
         let x_old = self
             .device
             .new_buffer(x.length(), MTLResourceOptions::StorageModePrivate);
+        let copy_x_to_x_old = self.default_queue.new_command_buffer();
+        self.copy_from_buffer(&x, &x_old, copy_x_to_x_old);
+        copy_x_to_x_old.commit();
         let grad_norm_squared = self.device.new_buffer_with_data(
-            0.0f32.to_le_bytes().as_ptr() as *const c_void,
-            size_of::<f32>() as u64,
-            MTLResourceOptions::CPUCacheModeDefaultCache,
-        );
-        let dot = self.device.new_buffer_with_data(
             0.0f32.to_le_bytes().as_ptr() as *const c_void,
             size_of::<f32>() as u64,
             MTLResourceOptions::CPUCacheModeDefaultCache,
@@ -282,16 +276,15 @@ impl GpuLib {
                 x_old,                     // [[id(2)]]
                 y,                         // [[id(3)]]
                 grad_norm_squared,         // [[id(4)]]
-                dot,                       // [[id(5)]]
-                diff_squared,              // [[id(6)]]
-                alpha,                     // [[id(7)]]
-                beta,                      // [[id(8)]]
-                t,                         // [[id(9)]]
-                c,                         // [[id(10)]]
-                b_mat.row_offsets.clone(), // [[id(11)]]
-                b_mat.col_indices.clone(), // [[id(12)]]
-                b_mat.values.clone(),      // [[id(13)]]
-                layer,                     // [[id(14)]]
+                diff_squared,              // [[id(5)]]
+                alpha,                     // [[id(6)]]
+                beta,                      // [[id(7)]]
+                t,                         // [[id(8)]]
+                c,                         // [[id(9)]]
+                b_mat.row_offsets.clone(), // [[id(10)]]
+                b_mat.col_indices.clone(), // [[id(11)]]
+                b_mat.values.clone(),      // [[id(12)]]
+                layer,                     // [[id(13)]]
             ]
         };
         encoder.set_buffers(
@@ -300,8 +293,9 @@ impl GpuLib {
                 .map(|i| i.as_ref())
                 .collect::<Vec<_>>()
                 .as_slice(),
-            &[0; 15],
+            &[0; 14],
         );
+        copy_x_to_x_old.wait_until_completed();
         (argument_buffer, data)
     }
 
@@ -460,6 +454,9 @@ impl GpuLib {
             MTLSize::new(size, 1, 1),
             MTLSize::new(max_threads_per_group, 1, 1),
         );
+        compute.end_encoding();
+        cmd.commit();
+        cmd.wait_until_completed();
         (argument_buffer, data)
     }
 
@@ -484,93 +481,102 @@ impl GpuLib {
                 &[&data[10], &data[11], &data[12], &data[13]],
                 MTLResourceUsage::Read,
             );
-            encoder.end_encoding();
         };
 
         let command = queue.new_command_buffer();
         let step_0 = command.new_compute_command_encoder();
         step_0.set_compute_pipeline_state(&self.cg_step_0_reset_alpha_beta);
-        step_0.dispatch_threads(MTLSize::new(1, 1, 1), MTLSize::new(1, 1, 1));
         set_arg(step_0);
+        step_0.dispatch_threads(MTLSize::new(1, 1, 1), MTLSize::new(1, 1, 1));
+        step_0.end_encoding();
 
         let step_1 = command.new_compute_command_encoder();
         step_1.set_compute_pipeline_state(&self.cg_step_1_norm_squared2);
         let max_threads = self
             .cg_step_1_norm_squared2
             .max_total_threads_per_threadgroup();
+        set_arg(step_1);
         step_1.dispatch_threads(
             MTLSize::new(size, 1, 1),
             MTLSize::new(min(max_threads, size), 1, 1),
         );
-        set_arg(step_1);
+        step_1.end_encoding();
 
         let step_2 = command.new_compute_command_encoder();
         step_2.set_compute_pipeline_state(&self.cg_step_2_bp);
         let max_threads = self.cg_step_2_bp.max_total_threads_per_threadgroup();
+        set_arg(step_2);
         step_2.dispatch_threads(
             MTLSize::new(size, 1, 1),
             MTLSize::new(min(max_threads, size), 1, 1),
         );
-        set_arg(step_2);
+        step_2.end_encoding();
 
         let step_3_1 = command.new_compute_command_encoder();
         step_3_1.set_compute_pipeline_state(&self.cg_step_3_1_dot_pbp);
         let max_threads = self.cg_step_3_1_dot_pbp.max_total_threads_per_threadgroup();
+        set_arg(step_3_1);
         step_3_1.dispatch_threads(
             MTLSize::new(size, 1, 1),
             MTLSize::new(min(max_threads, size), 1, 1),
         );
-        set_arg(step_3_1);
+        step_3_1.end_encoding();
 
         let step_3_2 = command.new_compute_command_encoder();
         step_3_2.set_compute_pipeline_state(&self.cg_step_3_2_alpha);
-        step_3_2.dispatch_threads(MTLSize::new(1, 1, 1), MTLSize::new(1, 1, 1));
         set_arg(step_3_2);
+        step_3_2.dispatch_threads(MTLSize::new(1, 1, 1), MTLSize::new(1, 1, 1));
+        step_3_2.end_encoding();
 
         let step_4 = command.new_compute_command_encoder();
         step_4.set_compute_pipeline_state(&self.cg_step_4_update_x);
         let max_threads = self.cg_step_4_update_x.max_total_threads_per_threadgroup();
+        set_arg(step_4);
         step_4.dispatch_threads(
             MTLSize::new(size, 1, 1),
             MTLSize::new(min(max_threads, size), 1, 1),
         );
-        set_arg(step_4);
+        step_4.end_encoding();
 
         let step_5_1 = command.new_compute_command_encoder();
         step_5_1.set_compute_pipeline_state(&self.cg_step_5_1_new_norm_squared2);
         let max_threads = self
             .cg_step_5_1_new_norm_squared2
             .max_total_threads_per_threadgroup();
+        set_arg(step_5_1);
         step_5_1.dispatch_threads(
             MTLSize::new(size, 1, 1),
             MTLSize::new(min(max_threads, size), 1, 1),
         );
-        set_arg(step_5_1);
+        step_5_1.end_encoding();
 
         let step_5_2 = command.new_compute_command_encoder();
         step_5_2.set_compute_pipeline_state(&self.cg_step_5_2_beta);
-        step_5_2.dispatch_threads(MTLSize::new(1, 1, 1), MTLSize::new(1, 1, 1));
         set_arg(step_5_2);
+        step_5_2.dispatch_threads(MTLSize::new(1, 1, 1), MTLSize::new(1, 1, 1));
+        step_5_2.end_encoding();
 
         let step_6 = command.new_compute_command_encoder();
         step_6.set_compute_pipeline_state(&self.cg_step_6_update_p);
         let max_threads = self.cg_step_6_update_p.max_total_threads_per_threadgroup();
+        set_arg(step_6);
         step_6.dispatch_threads(
             MTLSize::new(size, 1, 1),
             MTLSize::new(min(max_threads, size), 1, 1),
         );
-        set_arg(step_6);
+        step_6.end_encoding();
 
         let step_7 = command.new_compute_command_encoder();
         step_7.set_compute_pipeline_state(&self.cg_step_7_diff_squared);
         let max_threads = self
             .cg_step_7_diff_squared
             .max_total_threads_per_threadgroup();
+        set_arg(step_7);
         step_7.dispatch_threads(
             MTLSize::new(size, 1, 1),
             MTLSize::new(min(max_threads, size), 1, 1),
         );
-        set_arg(step_7);
+        step_7.end_encoding();
 
         command
     }
@@ -578,7 +584,7 @@ impl GpuLib {
     pub fn iter_ag<'a>(
         &'a self,
         arg: &Buffer,
-        data: &[Buffer; 15],
+        data: &[Buffer; 14],
         queue: &'a CommandQueue,
         size: u64,
     ) -> &'a CommandBufferRef {
@@ -586,26 +592,25 @@ impl GpuLib {
             encoder.set_buffer(0, Some(arg), 0);
             encoder.use_resources(
                 &[
-                    &data[0], &data[1], &data[2], &data[3], &data[4], &data[5], &data[6], &data[8],
-                    &data[9],
+                    &data[0], &data[1], &data[2], &data[3], &data[4], &data[5], &data[7], &data[8],
                 ],
                 MTLResourceUsage::Write | MTLResourceUsage::Read,
             );
             encoder.use_resources(
                 &[
-                    &data[7], &data[10], &data[11], &data[12], &data[13], &data[14],
+                    &data[6], &data[9], &data[10], &data[11], &data[12], &data[13],
                 ],
                 MTLResourceUsage::Read,
             );
-            encoder.end_encoding();
         };
 
         let command = queue.new_command_buffer();
 
         let step_0 = command.new_compute_command_encoder();
         step_0.set_compute_pipeline_state(&self.ag_step_0_reset_grad_norm);
-        step_0.dispatch_threads(MTLSize::new(1, 1, 1), MTLSize::new(1, 1, 1));
         set_arg(step_0);
+        step_0.dispatch_threads(MTLSize::new(1, 1, 1), MTLSize::new(1, 1, 1));
+        step_0.end_encoding();
 
         // step 1: x_tmp <- x
         self.copy_from_buffer(&data[0], &data[1], command);
@@ -613,11 +618,12 @@ impl GpuLib {
         let step_2 = command.new_compute_command_encoder();
         step_2.set_compute_pipeline_state(&self.ag_step_2_1_yk1);
         let max_threads = self.ag_step_2_1_yk1.max_total_threads_per_threadgroup();
+        set_arg(step_2);
         step_2.dispatch_threads(
             MTLSize::new(size, 1, 1),
             MTLSize::new(min(max_threads, size), 1, 1),
         );
-        set_arg(step_2);
+        step_2.end_encoding();
 
         // step_2_2: y <- x
         self.copy_from_buffer(&data[0], &data[3], command);
@@ -627,45 +633,50 @@ impl GpuLib {
         let max_threads = self
             .ag_step_3_bx_minus_c
             .max_total_threads_per_threadgroup();
+        set_arg(step_3);
         step_3.dispatch_threads(
             MTLSize::new(size, 1, 1),
             MTLSize::new(min(max_threads, size), 1, 1),
         );
-        set_arg(step_3);
+        step_3.end_encoding();
 
         let step_4 = command.new_compute_command_encoder();
         step_4.set_compute_pipeline_state(&self.ag_step_4_grad_norm);
         let max_threads = self.ag_step_4_grad_norm.max_total_threads_per_threadgroup();
+        set_arg(step_4);
         step_4.dispatch_threads(
             MTLSize::new(size, 1, 1),
             MTLSize::new(min(max_threads, size), 1, 1),
         );
-        set_arg(step_4);
+        step_4.end_encoding();
 
         let step_5 = command.new_compute_command_encoder();
         step_5.set_compute_pipeline_state(&self.ag_step_5_update_x);
         let max_threads = self.ag_step_5_update_x.max_total_threads_per_threadgroup();
+        set_arg(step_5);
         step_5.dispatch_threads(
             MTLSize::new(size, 1, 1),
             MTLSize::new(min(max_threads, size), 1, 1),
         );
-        set_arg(step_5);
+        step_5.end_encoding();
 
         let step_6 = command.new_compute_command_encoder();
         step_6.set_compute_pipeline_state(&self.ag_step_6_update_beta);
-        step_6.dispatch_threads(MTLSize::new(1, 1, 1), MTLSize::new(1, 1, 1));
         set_arg(step_6);
+        step_6.dispatch_threads(MTLSize::new(1, 1, 1), MTLSize::new(1, 1, 1));
+        step_6.end_encoding();
 
         let step_7 = command.new_compute_command_encoder();
         step_7.set_compute_pipeline_state(&self.ag_step_7_diff_squared);
         let max_threads = self
             .ag_step_7_diff_squared
             .max_total_threads_per_threadgroup();
+        set_arg(step_7);
         step_7.dispatch_threads(
             MTLSize::new(size, 1, 1),
             MTLSize::new(min(max_threads, size), 1, 1),
         );
-        set_arg(step_7);
+        step_7.end_encoding();
 
         command
     }
