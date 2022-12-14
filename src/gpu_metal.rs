@@ -311,6 +311,7 @@ impl GpuLib {
         c: Buffer,
         layer: Buffer,
         x: Buffer,
+        size: u64,
     ) -> (Buffer, [Buffer; 14]) {
         let arg_r_new_norm_squared = ArgumentDescriptor::new();
         arg_r_new_norm_squared.set_data_type(MTLDataType::Pointer);
@@ -454,6 +455,11 @@ impl GpuLib {
         compute.use_resource(&data[6], MTLResourceUsage::Read);
         compute.use_resource(&data[8], MTLResourceUsage::Write);
         compute.use_resource(&data[9], MTLResourceUsage::Write);
+        let max_threads_per_group = min(self.cg_init.max_total_threads_per_threadgroup(), size);
+        compute.dispatch_threads(
+            MTLSize::new(size, 1, 1),
+            MTLSize::new(max_threads_per_group, 1, 1),
+        );
         (argument_buffer, data)
     }
 

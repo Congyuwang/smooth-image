@@ -20,7 +20,10 @@ fn cg_method_unchecked<CB: FnMut(i32, f32, f32)>(
     gpu: &Arc<Mutex<GpuLib>>,
 ) -> (Vec<u8>, i32) {
     let size = b_mat.lock().unwrap().nrows();
-    let (arg, data) = gpu.lock().unwrap().init_cg_argument(b_mat, c, layer, x);
+    let (arg, data) = gpu
+        .lock()
+        .unwrap()
+        .init_cg_argument(b_mat, c, layer, x, size as u64);
     let mut iter_round = 0;
     let queue = gpu.lock().unwrap().new_queue();
     let mut command = gpu
