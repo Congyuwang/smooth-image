@@ -6,6 +6,7 @@ use std::cmp::{max, min};
 use std::ffi::c_void;
 use std::mem;
 use std::mem::{size_of, size_of_val, transmute};
+use crate::image_format::PX_MAX;
 
 const LIB: &[u8] = include_bytes!("./metallib/gpu.metallib");
 
@@ -91,6 +92,27 @@ impl GpuLib {
     pub fn private_buffer_u32(&self, data: &[usize]) -> (Buffer, &CommandBufferRef) {
         let buf_size = (size_of::<u32>() * data.len()) as u64;
         let buf = data.into_iter().map(|f| *f as u32).collect::<Vec<_>>();
+        let buf = self.device.new_buffer_with_data(
+            buf.as_ptr() as *const c_void,
+            buf_size,
+            MTLResourceOptions::StorageModeShared,
+        );
+        let private_buf = self
+            .device
+            .new_buffer(buf_size, MTLResourceOptions::StorageModePrivate);
+        let commands = self.default_queue.new_command_buffer();
+        self.copy_from_buffer(&buf, &private_buf, commands);
+        commands.commit();
+        (private_buf, commands)
+    }
+
+    /// returns both the buffer and the copy command, call `wait`.
+    pub fn private_buffer_f16_from_u8(&self, data: &[u8]) -> (Buffer, &CommandBufferRef) {
+        let buf_size = (size_of::<f16>() * data.len()) as u64;
+        let buf = data
+            .into_iter()
+            .map(|f| f16::from_f32(*f as f32 / PX_MAX))
+            .collect::<Vec<_>>();
         let buf = self.device.new_buffer_with_data(
             buf.as_ptr() as *const c_void,
             buf_size,

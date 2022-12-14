@@ -71,6 +71,7 @@ pub fn cg_method<CB: FnMut(i32, f32, f32)>(
     tol: f32,
     metric_step: i32,
     metric_cb: CB,
+    gpu: &GpuLib,
 ) -> Result<(Vec<u8>, i32)> {
     if tol <= 0.0 {
         return Err(ErrorMessage(format!("tol must be positive (tol={tol})")));

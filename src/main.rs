@@ -5,11 +5,14 @@ use crate::inpaint_worker::{run_inpaint, InitType, OptAlgo, RuntimeStats};
 use crate::mask_painter::produce_gray_mask_image;
 use clap::{Args, Parser, Subcommand};
 use humantime::FormattedDuration;
+use objc::rc::autoreleasepool;
 use tabled::{Table, Tabled};
+use crate::gpu_metal::GpuLib;
 
 mod ag_method;
 mod cg_method;
 mod error;
+mod gpu_metal;
 mod image_format;
 mod inpaint_worker;
 mod io;
@@ -107,61 +110,65 @@ impl From<RuntimeStats> for StatsDisplay {
 }
 
 fn main() {
-    let task: Tasks = Tasks::parse();
+    autoreleasepool(|| {
+        let task: Tasks = Tasks::parse();
+        let gpu = GpuLib::init();
 
-    match &task.task {
-        Task::MaskImage(mask_img) => {
-            if let Err(e) =
-                produce_gray_mask_image(&mask_img.image, &mask_img.mask, &mask_img.output)
-            {
-                println!("Error producing image: {e:?}");
+        match &task.task {
+            Task::MaskImage(mask_img) => {
+                if let Err(e) =
+                    produce_gray_mask_image(&mask_img.image, &mask_img.mask, &mask_img.output)
+                {
+                    println!("Error producing image: {e:?}");
+                }
             }
-        }
-        Task::InPaint(inpaint) => {
-            let init = match inpaint.init.as_str() {
-                "zero" => InitType::Zero,
-                "random" => InitType::Rand,
-                _ => {
-                    println!("unknown init type, choose `zero` or `random`");
-                    return;
-                }
-            };
-            let algo = match inpaint.algo.as_str() {
-                "ag" => OptAlgo::Ag,
-                "cg" => OptAlgo::Cg,
-                _ => {
-                    println!("unknown algo, choose `ag` or `cg`.");
-                    return;
-                }
-            };
-            match run_inpaint(
-                (&inpaint.image, &inpaint.mask, &inpaint.output),
-                algo,
-                inpaint.mu,
-                inpaint.tol,
-                init,
-                inpaint.metric_step,
-                !inpaint.mono,
-            ) {
-                Err(e) => {
-                    println!("Error executing inpaint: {e:?}");
-                }
-                Ok(stats) => {
-                    let metric_table =
-                        Table::new(stats.psnr_history.iter().map(|(i, m)| IterStat {
-                            iter_round: *i,
-                            psnr: *m,
-                        }));
-                    let stats = StatsDisplay::from(stats);
-                    let stats_table = Table::new(vec![stats]);
-                    println!("++ Run Stats ++");
-                    println!("{stats_table}");
-                    if inpaint.metric_step > 0 {
-                        println!("++ Metric History ++");
-                        println!("{metric_table}");
+            Task::InPaint(inpaint) => {
+                let init = match inpaint.init.as_str() {
+                    "zero" => InitType::Zero,
+                    "random" => InitType::Rand,
+                    _ => {
+                        println!("unknown init type, choose `zero` or `random`");
+                        return;
+                    }
+                };
+                let algo = match inpaint.algo.as_str() {
+                    "ag" => OptAlgo::Ag,
+                    "cg" => OptAlgo::Cg,
+                    _ => {
+                        println!("unknown algo, choose `ag` or `cg`.");
+                        return;
+                    }
+                };
+                match run_inpaint(
+                    (&inpaint.image, &inpaint.mask, &inpaint.output),
+                    algo,
+                    inpaint.mu,
+                    inpaint.tol,
+                    init,
+                    inpaint.metric_step,
+                    !inpaint.mono,
+                    &gpu,
+                ) {
+                    Err(e) => {
+                        println!("Error executing inpaint: {e:?}");
+                    }
+                    Ok(stats) => {
+                        let metric_table =
+                            Table::new(stats.psnr_history.iter().map(|(i, m)| IterStat {
+                                iter_round: *i,
+                                psnr: *m,
+                            }));
+                        let stats = StatsDisplay::from(stats);
+                        let stats_table = Table::new(vec![stats]);
+                        println!("++ Run Stats ++");
+                        println!("{stats_table}");
+                        if inpaint.metric_step > 0 {
+                            println!("++ Metric History ++");
+                            println!("{metric_table}");
+                        }
                     }
                 }
             }
         }
-    }
+    });
 }

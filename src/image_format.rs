@@ -4,7 +4,7 @@ use image::imageops::FilterType;
 use image::{DynamicImage as Im, DynamicImage};
 use image::{GrayAlphaImage, GrayImage, RgbImage, RgbaImage};
 
-const PX_MAX: f32 = 256.0f32;
+pub const PX_MAX: f32 = 256.0f32;
 
 pub fn make_mask_image(mask: Im, image: Im) -> Result<(Mask, ImageFormat)> {
     let width = image.width();
@@ -15,19 +15,15 @@ pub fn make_mask_image(mask: Im, image: Im) -> Result<(Mask, ImageFormat)> {
         Im::ImageLuma8(i) => ImageFormat::Luma {
             height,
             width,
-            l: i.as_flat_samples()
-                .samples
-                .iter()
-                .map(|i| *i as f32 / PX_MAX)
-                .collect(),
+            l: i.as_flat_samples().samples.iter().copied().collect(),
         },
         Im::ImageLumaA8(i) => {
             let mut l = Vec::with_capacity(size);
             let mut a = Vec::with_capacity(size);
             i.pixels().for_each(|p| {
                 let [pl, pa] = p.0;
-                l.push(pl as f32 / PX_MAX);
-                a.push(pa as f32 / PX_MAX);
+                l.push(pl);
+                a.push(pa);
             });
             ImageFormat::LumaA {
                 height,
@@ -42,9 +38,9 @@ pub fn make_mask_image(mask: Im, image: Im) -> Result<(Mask, ImageFormat)> {
             let mut b = Vec::with_capacity(size);
             i.pixels().for_each(|p| {
                 let [pr, pg, pb] = p.0;
-                r.push(pr as f32 / PX_MAX);
-                g.push(pg as f32 / PX_MAX);
-                b.push(pb as f32 / PX_MAX);
+                r.push(pr);
+                g.push(pg);
+                b.push(pb);
             });
             ImageFormat::Rgb {
                 height,
@@ -61,10 +57,10 @@ pub fn make_mask_image(mask: Im, image: Im) -> Result<(Mask, ImageFormat)> {
             let mut a = Vec::with_capacity(size);
             i.pixels().for_each(|p| {
                 let [pr, pg, pb, pa] = p.0;
-                r.push(pr as f32 / PX_MAX);
-                g.push(pg as f32 / PX_MAX);
-                b.push(pb as f32 / PX_MAX);
-                a.push(pa as f32 / PX_MAX)
+                r.push(pr);
+                g.push(pg);
+                b.push(pb);
+                a.push(pa)
             });
             ImageFormat::Rgba {
                 height,
@@ -125,42 +121,37 @@ pub enum ImageFormat {
     Luma {
         height: u32,
         width: u32,
-        l: Vec<f32>,
+        l: Vec<u8>,
     },
     LumaA {
         height: u32,
         width: u32,
-        l: Vec<f32>,
-        a: Vec<f32>,
+        l: Vec<u8>,
+        a: Vec<u8>,
     },
     Rgb {
         height: u32,
         width: u32,
-        r: Vec<f32>,
-        g: Vec<f32>,
-        b: Vec<f32>,
+        r: Vec<u8>,
+        g: Vec<u8>,
+        b: Vec<u8>,
     },
     Rgba {
         height: u32,
         width: u32,
-        r: Vec<f32>,
-        g: Vec<f32>,
-        b: Vec<f32>,
-        a: Vec<f32>,
+        r: Vec<u8>,
+        g: Vec<u8>,
+        b: Vec<u8>,
+        a: Vec<u8>,
     },
 }
 
 impl ImageFormat {
-    pub fn to_img(&self) -> Im {
+    pub fn to_img(self) -> Im {
         match self {
-            ImageFormat::Luma { height, width, l } => Im::ImageLuma8(
-                GrayImage::from_vec(
-                    *width,
-                    *height,
-                    l.iter().map(|p| (p * PX_MAX) as u8).collect(),
-                )
-                .unwrap(),
-            ),
+            ImageFormat::Luma { height, width, l } => {
+                Im::ImageLuma8(GrayImage::from_vec(*width, *height, l).unwrap())
+            }
             ImageFormat::LumaA {
                 height,
                 width,
@@ -170,10 +161,7 @@ impl ImageFormat {
                 GrayAlphaImage::from_vec(
                     *width,
                     *height,
-                    l.iter()
-                        .zip(a.iter())
-                        .flat_map(|(l, a)| [(l * PX_MAX) as u8, (a * PX_MAX) as u8])
-                        .collect(),
+                    l.into_iter().zip(a.into_iter()).flatten().collect(),
                 )
                 .unwrap(),
             ),
@@ -187,12 +175,10 @@ impl ImageFormat {
                 RgbImage::from_vec(
                     *width,
                     *height,
-                    r.iter()
-                        .zip(g.iter())
-                        .zip(b.iter())
-                        .flat_map(|((r, g), b)| {
-                            [(r * PX_MAX) as u8, (g * PX_MAX) as u8, (b * PX_MAX) as u8]
-                        })
+                    r.into_iter()
+                        .zip(g.into_iter())
+                        .zip(b.into_iter())
+                        .flatten()
                         .collect(),
                 )
                 .unwrap(),
@@ -208,18 +194,11 @@ impl ImageFormat {
                 RgbaImage::from_vec(
                     *width,
                     *height,
-                    r.iter()
-                        .zip(g.iter())
-                        .zip(b.iter())
-                        .zip(a.iter())
-                        .flat_map(|(((r, g), b), a)| {
-                            [
-                                (r * PX_MAX) as u8,
-                                (g * PX_MAX) as u8,
-                                (b * PX_MAX) as u8,
-                                (a * PX_MAX) as u8,
-                            ]
-                        })
+                    r.into_iter()
+                        .zip(g.into_iter())
+                        .zip(b.into_iter())
+                        .zip(a.into_iter())
+                        .flatten()
                         .collect(),
                 )
                 .unwrap(),
