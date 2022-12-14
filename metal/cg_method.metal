@@ -15,13 +15,15 @@ using namespace metal;
 //
 // IMPORTANT: remember to reset r_new_norm_squared, r_norm_squared, dot to 0 on cpu before each run!!!
 struct CgMethodBuffers {
-    // private
+    // cpu cache
     volatile device atomic_float* r_new_norm_squared [[id(0)]];
     volatile device atomic_float* r_norm_squared [[id(1)]];
     volatile device atomic_float* dot [[id(2)]];
     volatile device atomic_float* diff_squared [[id(3)]];
     device half& alpha [[id(4)]];
     device half& beta [[id(5)]];
+
+    // private
     device half* x [[id(6)]];
     device half* bp [[id(7)]];
     device half* p [[id(8)]];
@@ -37,7 +39,7 @@ kernel void cg_init(device CgMethodBuffers& buffers,
     const uint p1 = buffers.row_offsets[index + 1];
     half dot = 0.0;
     for (uint p = buffers.row_offsets[index]; p < p1; p++) {
-        dot += buffers.values[p] * buffers.x[p];
+        dot += buffers.values[p] * buffers.x[buffers.col_indices[p]];
     }
     buffers.r[index] = -buffers.r[index] + dot;
     buffers.p[index] = -buffers.r[index];
@@ -66,7 +68,7 @@ kernel void cg_step_2_bp(device CgMethodBuffers& buffers,
     const uint p1 = buffers.row_offsets[index + 1];
     half dot = 0.0;
     for (uint p = buffers.row_offsets[index]; p < p1; p++) {
-        dot += buffers.values[p] * buffers.p[p];
+        dot += buffers.values[p] * buffers.p[buffers.col_indices[p]];
     }
     buffers.bp[index] = dot;
 }

@@ -16,7 +16,7 @@ using namespace metal;
 //
 // IMPORTANT: remember to reset r_new_norm_squared, r_norm_squared, dot to 0 on cpu before each run!!!
 struct AgMethodBuffers {
-    // private
+    // cpu cache
     device half* x [[id(0)]];
     device half* x_tmp [[id(1)]];
     device half* x_old [[id(2)]];
@@ -24,6 +24,8 @@ struct AgMethodBuffers {
     volatile device atomic_float* grad_norm [[id(4)]];
     volatile device atomic_float* dot [[id(5)]];
     volatile device atomic_float* diff_squared [[id(6)]];
+
+    // private
     device const half& alpha [[id(7)]];
     device half& beta [[id(8)]];
     device half& t [[id(9)]];
@@ -62,7 +64,7 @@ kernel void ag_step_3_bx_minus_c(device AgMethodBuffers& buffers,
     const uint p1 = buffers.row_offsets[index + 1];
     half dot = 0.0;
     for (uint p = buffers.row_offsets[index]; p < p1; p++) {
-        dot += buffers.values[p] * buffers.y[p];
+        dot += buffers.values[p] * buffers.y[buffers.col_indices[p]];
     }
     buffers.x[index] = dot - buffers.c[index];
 }
