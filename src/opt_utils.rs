@@ -5,7 +5,7 @@ use nalgebra_sparse::CsrMatrix;
 
 pub fn psnr(inferred: &[f32], original: &[f32]) -> f32 {
     let norm_sq = metric_distance_squared(inferred, original);
-    (inferred.len() as f32 / norm_sq).log10()
+    10.0 * (inferred.len() as f32 / norm_sq).log10()
 }
 
 /// build the selection matrix A
