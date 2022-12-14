@@ -6,7 +6,6 @@ use crate::gpu_metal::GpuLib;
 use crate::image_format::{make_mask_image, ImageFormat, Mask, PX_MAX};
 use crate::io::{read_img, write_png};
 use crate::opt_utils::{matrix_a, matrix_d, psnr};
-use crate::simd::CsrMatrixF16;
 use metal::Buffer;
 use nalgebra::DVector;
 use nalgebra_sparse::ops::serial::{
@@ -20,6 +19,7 @@ use rand::rngs::SmallRng;
 use rand::SeedableRng;
 use std::fmt::Debug;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 use std::thread::scope;
 use std::time::Instant;
 
@@ -96,6 +96,9 @@ pub struct CsrMatrixF16 {
     pub values: Buffer,
 }
 
+unsafe impl Send for CsrMatrixF16 {}
+unsafe impl Sync for CsrMatrixF16 {}
+
 impl CsrMatrixF16 {
     pub fn nrows(&self) -> usize {
         self.nrows
@@ -131,12 +134,11 @@ impl CsrMatrixF16 {
 pub fn run_inpaint<I, M, O>(
     (image, mask, out): (I, M, O),
     algo: OptAlgo,
-    mu: f32,
-    tol: f32,
+    (mu, tol): (f32, f32),
     init_type: InitType,
     metric_step: i32,
     color: bool,
-    gpu: &GpuLib,
+    gpu: GpuLib,
 ) -> Result<RuntimeStats>
 where
     I: AsRef<Path> + Debug,
@@ -150,12 +152,12 @@ where
     }
     let mask = read_img(mask)?;
     let (mask, image) = make_mask_image(mask, image)?;
-
+    let size = (mask.width * mask.height) as usize;
     let image_read_time = Instant::now();
 
     let (b_mat, matrix_a) = prepare_matrix(&mask, mu)?;
-    let b_mat = CsrMatrixF16::from_mat(b_mat, gpu);
-    let img_buffers = make_image_buffer_buffer(image, &mask, matrix_a, gpu);
+    let b_mat = CsrMatrixF16::from_mat(b_mat, &gpu);
+    let img_buffers = make_image_buffer_buffer(image, mask, matrix_a, &gpu);
 
     let matrix_generation_time = Instant::now();
 
@@ -165,18 +167,23 @@ where
         metrics: Vec<(i32, f32)>,
     }
 
-    let layer_worker = |thread_id: i32, c: Buffer, layer: Buffer| {
-        let mut metrics = Vec::<(i32, f32)>::new();
-        let x = init_x(mask.width as usize, mask.height as usize, init_type, &gpu);
+    struct SendBuffer(Buffer);
 
+    unsafe impl Send for SendBuffer {}
+
+    let gpu = Arc::new(Mutex::new(gpu));
+
+    let layer_worker = |thread_id: i32, c: SendBuffer, layer: SendBuffer| {
+        let mut metrics = Vec::<(i32, f32)>::new();
+        let x = init_x(size, init_type, &gpu);
         let metric_cb = |iter_round, diff_squared: f32, tol_var: f32| {
-            let psnr = psnr(inferred, diff_squared);
+            let psnr = psnr(size, diff_squared);
             println!("thread={thread_id}, iter={iter_round}, psnr={psnr}, tol_var={tol_var}");
             metrics.push((iter_round, psnr));
         };
         let run_result = match algo {
-            OptAlgo::Cg => cg_method(&b_mat, c, layer, x, tol, metric_step, metric_cb, gpu),
-            OptAlgo::Ag => ag_method(&b_mat, c, mu, layer, x, tol, metric_step, metric_cb, gpu),
+            OptAlgo::Cg => cg_method(&b_mat, (c.0, layer.0, x), tol, metric_step, metric_cb, &gpu),
+            OptAlgo::Ag => ag_method(&b_mat, (c.0, layer.0, x), mu, tol, metric_step, metric_cb, &gpu),
         };
         match run_result {
             Ok((output, iter_round)) => Ok((output, iter_round, metrics)),
@@ -184,18 +191,20 @@ where
         }
     };
 
-    match img_buffers {
+    let output = match img_buffers {
         ImageBuffer::Luma {
             width,
             height,
             l_c,
             l_original,
         } => {
+            let l_c = SendBuffer(l_c);
+            let l_original = SendBuffer(l_original);
             let (output, rounds, metrics) = layer_worker(0, l_c, l_original)?;
             ProcessOutput {
                 output: ImageFormat::Luma {
-                    width: *width,
-                    height: *height,
+                    width,
+                    height,
                     l: output,
                 },
                 rounds,
@@ -210,6 +219,10 @@ where
             a_c,
             a_original,
         } => {
+            let l_c = SendBuffer(l_c);
+            let l_original = SendBuffer(l_original);
+            let a_c = SendBuffer(a_c);
+            let a_original = SendBuffer(a_original);
             let (l_output, a_output) = scope(|s| {
                 let l_output = s.spawn(|| layer_worker(0, l_c, l_original));
                 let a_output = s.spawn(|| layer_worker(1, a_c, a_original));
@@ -219,8 +232,8 @@ where
             let (a_output, a_rounds, a_metrics) = a_output.unwrap()?;
             ProcessOutput {
                 output: ImageFormat::LumaA {
-                    width: *width,
-                    height: *height,
+                    width,
+                    height,
                     l: l_output,
                     a: a_output,
                 },
@@ -242,6 +255,12 @@ where
             b_c,
             b_original,
         } => {
+            let r_c = SendBuffer(r_c);
+            let r_original = SendBuffer(r_original);
+            let g_c = SendBuffer(g_c);
+            let g_original = SendBuffer(g_original);
+            let b_c = SendBuffer(b_c);
+            let b_original = SendBuffer(b_original);
             let (r_output, g_output, b_output) = scope(|s| {
                 let r_output = s.spawn(|| layer_worker(0, r_c, r_original));
                 let g_output = s.spawn(|| layer_worker(1, g_c, g_original));
@@ -254,8 +273,8 @@ where
             let max_rounds = r_rounds.max(g_rounds).max(b_rounds);
             ProcessOutput {
                 output: ImageFormat::Rgb {
-                    width: *width,
-                    height: *height,
+                    width,
+                    height,
                     r: r_output,
                     g: g_output,
                     b: b_output,
@@ -282,6 +301,14 @@ where
             a_c,
             a_original,
         } => {
+            let r_c = SendBuffer(r_c);
+            let r_original = SendBuffer(r_original);
+            let g_c = SendBuffer(g_c);
+            let g_original = SendBuffer(g_original);
+            let b_c = SendBuffer(b_c);
+            let b_original = SendBuffer(b_original);
+            let a_c = SendBuffer(a_c);
+            let a_original = SendBuffer(a_original);
             let (r_output, g_output, b_output, a_output) = scope(|s| {
                 let r_output = s.spawn(|| layer_worker(0, r_c, r_original));
                 let g_output = s.spawn(|| layer_worker(1, g_c, g_original));
@@ -301,8 +328,8 @@ where
             let max_rounds = r_rounds.max(g_rounds).max(b_rounds).max(a_rounds);
             ProcessOutput {
                 output: ImageFormat::Rgba {
-                    width: *width,
-                    height: *height,
+                    width,
+                    height,
                     r: r_output,
                     g: g_output,
                     b: b_output,
@@ -320,11 +347,11 @@ where
                 },
             }
         }
-    }
+    };
 
     let optimization_time = Instant::now();
 
-    write_png(out, &output.output.to_img())?;
+    write_png(out, &output.output.into_img())?;
 
     let image_write_time = Instant::now();
 
@@ -341,8 +368,7 @@ where
     Ok(runtime_stats)
 }
 
-pub fn init_x(width: usize, height: usize, init_type: InitType, gpu: &GpuLib) -> Buffer {
-    let size = width * height;
+pub fn init_x(size: usize, init_type: InitType, gpu: &Arc<Mutex<GpuLib>>) -> Buffer {
     match init_type {
         InitType::Rand => {
             let small_rng = SmallRng::from_entropy();
@@ -351,12 +377,14 @@ pub fn init_x(width: usize, height: usize, init_type: InitType, gpu: &GpuLib) ->
                 .sample_iter(small_rng)
                 .take(size)
                 .collect::<Vec<_>>();
-            let (buf, cmd) = gpu.private_buffer_f16(&v);
+            let lock = gpu.lock().unwrap();
+            let (buf, cmd) = lock.private_buffer_f16(&v);
             cmd.wait_until_completed();
             buf
         }
         InitType::Zero => {
-            let (buf, cmd) = gpu.private_buffer_f16(&vec![0.0f32; size]);
+            let lock = gpu.lock().unwrap();
+            let (buf, cmd) = lock.private_buffer_f16(&vec![0.0f32; size]);
             cmd.wait_until_completed();
             buf
         }
@@ -425,7 +453,7 @@ fn compute_c(matrix_a: &CsrMatrix<f32>, mask: &Mask, layer: &[u8], gpu: &GpuLib)
 
 fn make_image_buffer_buffer(
     image: ImageFormat,
-    mask: &Mask,
+    mask: Mask,
     matrix_a: CsrMatrix<f32>,
     gpu: &GpuLib,
 ) -> ImageBuffer {
@@ -437,7 +465,7 @@ fn make_image_buffer_buffer(
                 width,
                 height,
                 l_original,
-                l_c: compute_c(&matrix_a, mask, &l, gpu),
+                l_c: compute_c(&matrix_a, &mask, &l, gpu),
             }
         }
         ImageFormat::LumaA { l, a, width, height } => {
@@ -448,9 +476,9 @@ fn make_image_buffer_buffer(
             ImageBuffer::LumaA {
                 width,
                 height,
-                l_c: compute_c(&matrix_a, mask, &l, gpu),
+                l_c: compute_c(&matrix_a, &mask, &l, gpu),
                 l_original,
-                a_c: compute_c(&matrix_a, mask, &a, gpu),
+                a_c: compute_c(&matrix_a, &mask, &a, gpu),
                 a_original,
             }
         }
@@ -464,11 +492,11 @@ fn make_image_buffer_buffer(
             ImageBuffer::Rgb {
                 width,
                 height,
-                r_c: compute_c(&matrix_a, mask, &r, gpu),
+                r_c: compute_c(&matrix_a, &mask, &r, gpu),
                 r_original,
-                g_c: compute_c(&matrix_a, mask, &g, gpu),
+                g_c: compute_c(&matrix_a, &mask, &g, gpu),
                 g_original,
-                b_c: compute_c(&matrix_a, mask, &b, gpu),
+                b_c: compute_c(&matrix_a, &mask, &b, gpu),
                 b_original,
             }
         }
@@ -484,13 +512,13 @@ fn make_image_buffer_buffer(
             ImageBuffer::Rgba {
                 width,
                 height,
-                r_c: compute_c(&matrix_a, mask, &r, gpu),
+                r_c: compute_c(&matrix_a, &mask, &r, gpu),
                 r_original,
-                g_c: compute_c(&matrix_a, mask, &g, gpu),
+                g_c: compute_c(&matrix_a, &mask, &g, gpu),
                 g_original,
-                b_c: compute_c(&matrix_a, mask, &b, gpu),
+                b_c: compute_c(&matrix_a, &mask, &b, gpu),
                 b_original,
-                a_c: compute_c(&matrix_a, mask, &a, gpu),
+                a_c: compute_c(&matrix_a, &mask, &a, gpu),
                 a_original,
             }
         }

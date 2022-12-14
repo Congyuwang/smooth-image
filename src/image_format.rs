@@ -15,7 +15,7 @@ pub fn make_mask_image(mask: Im, image: Im) -> Result<(Mask, ImageFormat)> {
         Im::ImageLuma8(i) => ImageFormat::Luma {
             height,
             width,
-            l: i.as_flat_samples().samples.iter().copied().collect(),
+            l: i.as_flat_samples().samples.to_vec(),
         },
         Im::ImageLumaA8(i) => {
             let mut l = Vec::with_capacity(size);
@@ -147,10 +147,10 @@ pub enum ImageFormat {
 }
 
 impl ImageFormat {
-    pub fn to_img(self) -> Im {
+    pub fn into_img(self) -> Im {
         match self {
             ImageFormat::Luma { height, width, l } => {
-                Im::ImageLuma8(GrayImage::from_vec(*width, *height, l).unwrap())
+                Im::ImageLuma8(GrayImage::from_vec(width, height, l).unwrap())
             }
             ImageFormat::LumaA {
                 height,
@@ -159,9 +159,9 @@ impl ImageFormat {
                 a,
             } => Im::ImageLumaA8(
                 GrayAlphaImage::from_vec(
-                    *width,
-                    *height,
-                    l.into_iter().zip(a.into_iter()).flatten().collect(),
+                    width,
+                    height,
+                    l.into_iter().zip(a.into_iter()).flat_map(|(a, b)| [a, b]).collect(),
                 )
                 .unwrap(),
             ),
@@ -173,12 +173,12 @@ impl ImageFormat {
                 b,
             } => Im::ImageRgb8(
                 RgbImage::from_vec(
-                    *width,
-                    *height,
+                    width,
+                    height,
                     r.into_iter()
                         .zip(g.into_iter())
                         .zip(b.into_iter())
-                        .flatten()
+                        .flat_map(|((a, b), c)| [a, b, c])
                         .collect(),
                 )
                 .unwrap(),
@@ -192,13 +192,13 @@ impl ImageFormat {
                 a,
             } => Im::ImageRgba8(
                 RgbaImage::from_vec(
-                    *width,
-                    *height,
+                    width,
+                    height,
                     r.into_iter()
                         .zip(g.into_iter())
                         .zip(b.into_iter())
                         .zip(a.into_iter())
-                        .flatten()
+                        .flat_map(|(((a, b), c), d)| [a, b, c, d])
                         .collect(),
                 )
                 .unwrap(),

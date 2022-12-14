@@ -1,6 +1,8 @@
 #![feature(portable_simd)]
 #![feature(array_chunks)]
 
+extern crate core;
+
 use crate::inpaint_worker::{run_inpaint, InitType, OptAlgo, RuntimeStats};
 use crate::mask_painter::produce_gray_mask_image;
 use clap::{Args, Parser, Subcommand};
@@ -18,7 +20,6 @@ mod inpaint_worker;
 mod io;
 mod mask_painter;
 mod opt_utils;
-mod simd;
 
 #[derive(Parser)]
 #[command(name = "Assignment4")]
@@ -142,12 +143,11 @@ fn main() {
                 match run_inpaint(
                     (&inpaint.image, &inpaint.mask, &inpaint.output),
                     algo,
-                    inpaint.mu,
-                    inpaint.tol,
+                    (inpaint.mu, inpaint.tol),
                     init,
                     inpaint.metric_step,
                     !inpaint.mono,
-                    &gpu,
+                    gpu,
                 ) {
                     Err(e) => {
                         println!("Error executing inpaint: {e:?}");
