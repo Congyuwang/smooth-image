@@ -1,3 +1,4 @@
+use crate::inpaint_worker::CsrMatrixF16;
 use half::f16;
 use metal::*;
 use std::cmp::min;
@@ -10,6 +11,7 @@ const LIB: &[u8] = include_bytes!("./metallib/gpu.metallib");
 pub struct GpuLib {
     device: Device,
     default_queue: CommandQueue,
+    cg_init: ComputePipelineState,
     cg_step_0_reset_alpha_beta: ComputePipelineState,
     cg_step_1_norm_squared2: ComputePipelineState,
     cg_step_2_bp: ComputePipelineState,
@@ -40,6 +42,7 @@ fn init_module() -> GpuLib {
     GpuLib {
         device,
         default_queue: queue,
+        cg_init: get_func("cg_init", &lib, &device),
         cg_step_0_reset_alpha_beta: get_func("cg_step_0_reset_alpha_beta", &lib, &device),
         cg_step_1_norm_squared2: get_func("cg_step_1_norm_squared2", &lib, &device),
         cg_step_2_bp: get_func("cg_step_2_bp", &lib, &device),
@@ -72,18 +75,9 @@ impl GpuLib {
         init_module()
     }
 
-    pub fn empty_private_buffer<T: Sized>(&self, size: usize) -> Buffer {
-        let buf_size = (size_of::<T>() * size) as u64;
-        self.device
-            .new_buffer(buf_size, MTLResourceOptions::StorageModePrivate)
-    }
-
     pub fn private_buffer_u32(&self, data: &[usize]) -> (Buffer, &CommandBufferRef) {
         let buf_size = (size_of::<u32>() * data.len()) as u64;
-        let buf = data
-            .into_iter()
-            .map(|f| *f as u32)
-            .collect::<Vec<_>>();
+        let buf = data.into_iter().map(|f| *f as u32).collect::<Vec<_>>();
         let buf = self.device.new_buffer_with_data(
             buf.as_ptr() as *const c_void,
             buf_size,
@@ -154,178 +148,288 @@ impl GpuLib {
         blit_pass.end_encoding();
     }
 
-    pub fn init_ag_argument() {
-
-    }
-
-    pub fn axpy(&self, a: f16, x: &Buffer, y: &Buffer, commands: &CommandBufferRef) {
-        let compute = commands.new_compute_command_encoder();
-        compute.set_compute_pipeline_state(&self.axpy_fun);
-        let a = a.to_le_bytes();
-        compute.set_bytes(0, size_of_val(&a) as u64, a.as_ptr() as *const c_void);
-        compute.set_buffer(1, Some(x), 0);
-        compute.set_buffer(2, Some(y), 0);
-        let threads_per_thread_group = min(
-            x.length(),
-            self.axpy_fun.max_total_threads_per_threadgroup(),
-        );
-        compute.dispatch_threads(
-            MTLSize::new(x.length(), 0, 0),
-            MTLSize::new(threads_per_thread_group, 0, 0),
-        );
-        compute.end_encoding();
-    }
-
-    pub fn axpby(&self, a: f16, x: &Buffer, b: f16, y: &Buffer, commands: &CommandBufferRef) {
-        let compute = commands.new_compute_command_encoder();
-        compute.set_compute_pipeline_state(&self.axpby_fun);
-        let a = a.to_le_bytes();
-        let b = b.to_le_bytes();
-        compute.set_bytes(0, size_of_val(&a) as u64, a.as_ptr() as *const c_void);
-        compute.set_buffer(1, Some(x), 0);
-        compute.set_bytes(2, size_of_val(&b) as u64, b.as_ptr() as *const c_void);
-        compute.set_buffer(3, Some(y), 0);
-        let threads_per_thread_group = min(
-            x.length(),
-            self.axpby_fun.max_total_threads_per_threadgroup(),
-        );
-        compute.dispatch_threads(
-            MTLSize::new(x.length(), 0, 0),
-            MTLSize::new(threads_per_thread_group, 0, 0),
-        );
-        compute.end_encoding();
-    }
-
-    pub fn dot(&self, x: &Buffer, y: &Buffer, output: &Buffer, commands: &CommandBufferRef) {
-        let compute = commands.new_compute_command_encoder();
-        compute.set_compute_pipeline_state(&self.dot_fun);
-        compute.set_buffer(0, Some(x), 0);
-        compute.set_buffer(1, Some(y), 0);
-        compute.set_buffer(2, Some(output), 0);
-        let threads_per_thread_group =
-            min(x.length(), self.dot_fun.max_total_threads_per_threadgroup());
-        compute.dispatch_threads(
-            MTLSize::new(x.length(), 1, 1),
-            MTLSize::new(threads_per_thread_group, 1, 1),
-        );
-        compute.end_encoding();
-    }
-
-    pub fn norm_squared(&self, x: &Buffer, output: &Buffer, commands: &CommandBufferRef) {
-        let compute = commands.new_compute_command_encoder();
-        compute.set_compute_pipeline_state(&self.norm_squared_fun);
-        compute.set_buffer(0, Some(x), 0);
-        compute.set_buffer(1, Some(output), 0);
-        let threads_per_thread_group = min(
-            x.length(),
-            self.norm_squared_fun.max_total_threads_per_threadgroup(),
-        );
-        compute.dispatch_threads(
-            MTLSize::new(x.length(), 1, 1),
-            MTLSize::new(threads_per_thread_group, 1, 1),
-        );
-        compute.end_encoding();
-    }
-
-    pub fn dist_squared(
+    pub fn init_ag_argument(
         &self,
+        b_mat: &CsrMatrixF16,
+        c: Buffer,
+        layer: Buffer,
+        mu: f32,
+        x: Buffer,
+    ) -> (Buffer, [&Buffer; 15]) {
+        let arg_x = ArgumentDescriptor::new();
+        arg_x.set_data_type(MTLDataType::Pointer);
+        arg_x.set_index(0);
+        let arg_x_tmp = ArgumentDescriptor::new();
+        arg_x_tmp.set_data_type(MTLDataType::Pointer);
+        arg_x_tmp.set_index(0);
+        let arg_x_old = ArgumentDescriptor::new();
+        arg_x_old.set_data_type(MTLDataType::Pointer);
+        arg_x_old.set_index(0);
+        let arg_y = ArgumentDescriptor::new();
+        arg_y.set_data_type(MTLDataType::Pointer);
+        arg_y.set_index(0);
+
+        let arg_grad_norm = ArgumentDescriptor::new();
+        arg_grad_norm.set_data_type(MTLDataType::Pointer);
+        arg_grad_norm.set_index(0);
+        let arg_dot = ArgumentDescriptor::new();
+        arg_dot.set_data_type(MTLDataType::Pointer);
+        arg_dot.set_index(0);
+        let arg_diff_squared = ArgumentDescriptor::new();
+        arg_diff_squared.set_data_type(MTLDataType::Pointer);
+        arg_diff_squared.set_index(0);
+
+        let arg_alpha = ArgumentDescriptor::new();
+        arg_alpha.set_data_type(MTLDataType::Half);
+        arg_alpha.set_index(0);
+        let arg_beta = ArgumentDescriptor::new();
+        arg_beta.set_data_type(MTLDataType::Half);
+        arg_beta.set_index(0);
+        let arg_t = ArgumentDescriptor::new();
+        arg_t.set_data_type(MTLDataType::Half);
+        arg_t.set_index(0);
+
+        let arg_c = ArgumentDescriptor::new();
+        arg_c.set_data_type(MTLDataType::Pointer);
+        arg_c.set_index(0);
+        let arg_row_offsets = ArgumentDescriptor::new();
+        arg_row_offsets.set_data_type(MTLDataType::Pointer);
+        arg_row_offsets.set_index(0);
+        let arg_col_indices = ArgumentDescriptor::new();
+        arg_col_indices.set_data_type(MTLDataType::Pointer);
+        arg_col_indices.set_index(0);
+        let arg_values = ArgumentDescriptor::new();
+        arg_values.set_data_type(MTLDataType::Pointer);
+        arg_values.set_index(0);
+        let arg_original = ArgumentDescriptor::new();
+        arg_original.set_data_type(MTLDataType::Pointer);
+        arg_original.set_index(0);
+
+        let encoder = self.device.new_argument_encoder(Array::from_slice(&[
+            arg_x,
+            arg_x_tmp,
+            arg_x_old,
+            arg_y,
+            arg_grad_norm,
+            arg_dot,
+            arg_diff_squared,
+            arg_alpha,
+            arg_beta,
+            arg_t,
+            arg_c,
+            arg_row_offsets,
+            arg_col_indices,
+            arg_values,
+            arg_original,
+        ]));
+
+        let argument_buffer = self.device.new_buffer(
+            encoder.encoded_length(),
+            MTLResourceOptions::StorageModeShared,
+        );
+
+        let y = self
+            .device
+            .new_buffer(x.length(), MTLResourceOptions::StorageModePrivate);
+        let x_tmp = self
+            .device
+            .new_buffer(x.length(), MTLResourceOptions::StorageModePrivate);
+        let x_old = self
+            .device
+            .new_buffer(x.length(), MTLResourceOptions::StorageModePrivate);
+        let grad_norm = self.device.new_buffer_with_data(
+            0.0f32.to_le_bytes().as_ptr() as *const c_void,
+            size_of::<f32>() as u64,
+            MTLResourceOptions::CPUCacheModeDefaultCache,
+        );
+        let dot = self.device.new_buffer_with_data(
+            0.0f32.to_le_bytes().as_ptr() as *const c_void,
+            size_of::<f32>() as u64,
+            MTLResourceOptions::CPUCacheModeDefaultCache,
+        );
+        let diff_squared = self.device.new_buffer_with_data(
+            0.0f32.to_le_bytes().as_ptr() as *const c_void,
+            size_of::<f32>() as u64,
+            MTLResourceOptions::CPUCacheModeDefaultCache,
+        );
+        let alpha = self.device.new_buffer_with_data(
+            f16::from_f32(1.0 / (1.0 + 8.0 * mu)).to_le_bytes().as_ptr() as *const c_void,
+            size_of::<f32>() as u64,
+            MTLResourceOptions::CPUCacheModeDefaultCache,
+        );
+        let beta = self.device.new_buffer_with_data(
+            f16::from_f32(0.0).to_le_bytes().as_ptr() as *const c_void,
+            size_of::<f32>() as u64,
+            MTLResourceOptions::CPUCacheModeDefaultCache,
+        );
+        let t = self.device.new_buffer_with_data(
+            f16::from_f32(1.0).to_le_bytes().as_ptr() as *const c_void,
+            size_of::<f32>() as u64,
+            MTLResourceOptions::CPUCacheModeDefaultCache,
+        );
+
+        encoder.set_argument_buffer(&argument_buffer, 0);
+        let data = [
+            &x,
+            &x_tmp,
+            &x_old,
+            &y,
+            &grad_norm,
+            &dot,
+            &diff_squared,
+            &alpha,
+            &beta,
+            &t,
+            &c,
+            &b_mat.row_offsets,
+            &b_mat.col_indices,
+            &b_mat.values,
+            &layer,
+        ];
+        encoder.set_buffers(0, &data, &[0; 15]);
+        (argument_buffer, data)
+    }
+
+    pub fn init_cg_argument(
+        &self,
+        b_mat: &CsrMatrixF16,
+        c: &Buffer,
+        layer: &Buffer,
         x: &Buffer,
-        y: &Buffer,
-        output: &Buffer,
-        commands: &CommandBufferRef,
-    ) {
-        let compute = commands.new_compute_command_encoder();
-        compute.set_compute_pipeline_state(&self.dist_squared_fun);
-        compute.set_buffer(0, Some(x), 0);
-        compute.set_buffer(1, Some(y), 0);
-        compute.set_buffer(2, Some(output), 0);
-        let threads_per_thread_group = min(
-            x.length(),
-            self.dist_squared_fun.max_total_threads_per_threadgroup(),
-        );
-        compute.dispatch_threads(
-            MTLSize::new(x.length(), 1, 1),
-            MTLSize::new(threads_per_thread_group, 1, 1),
-        );
-        compute.end_encoding();
-    }
+    ) -> (Buffer, [&Buffer; 14]) {
+        let arg_r_new_norm_squared = ArgumentDescriptor::new();
+        arg_r_new_norm_squared.set_data_type(MTLDataType::Pointer);
+        arg_r_new_norm_squared.set_index(0);
+        let arg_r_norm_squared = ArgumentDescriptor::new();
+        arg_r_norm_squared.set_data_type(MTLDataType::Pointer);
+        arg_r_norm_squared.set_index(1);
+        let arg_dot = ArgumentDescriptor::new();
+        arg_dot.set_data_type(MTLDataType::Pointer);
+        arg_dot.set_index(2);
+        let arg_diff_squared = ArgumentDescriptor::new();
+        arg_diff_squared.set_data_type(MTLDataType::Pointer);
+        arg_diff_squared.set_index(3);
 
-    pub fn neg(&self, x: &Buffer, commands: &CommandBufferRef) {
-        let compute = commands.new_compute_command_encoder();
-        compute.set_compute_pipeline_state(&self.neg_fun);
-        compute.set_buffer(0, Some(x), 0);
-        let threads_per_thread_group =
-            min(x.length(), self.neg_fun.max_total_threads_per_threadgroup());
-        compute.dispatch_threads(
-            MTLSize::new(x.length(), 1, 1),
-            MTLSize::new(threads_per_thread_group, 1, 1),
-        );
-        compute.end_encoding();
-    }
+        let arg_alpha = ArgumentDescriptor::new();
+        arg_alpha.set_data_type(MTLDataType::Half);
+        arg_alpha.set_index(4);
+        let arg_beta = ArgumentDescriptor::new();
+        arg_beta.set_data_type(MTLDataType::Half);
+        arg_beta.set_index(5);
 
-    pub fn sparse_matrix_vector_prod(
-        &self,
-        c: &Buffer,
-        row_offsets: &Buffer,
-        col_indices: &Buffer,
-        values: &Buffer,
-        b: &Buffer,
-        commands: &CommandBufferRef,
-    ) {
-        let compute = commands.new_compute_command_encoder();
-        compute.set_compute_pipeline_state(&self.sparse_matrix_vector_prod_fun);
-        compute.set_buffer(0, Some(c), 0);
-        compute.set_buffer(1, Some(row_offsets), 0);
-        compute.set_buffer(2, Some(col_indices), 0);
-        compute.set_buffer(3, Some(values), 0);
-        compute.set_buffer(4, Some(b), 0);
-        let threads_per_thread_group = min(
-            c.length(),
-            self.sparse_matrix_vector_prod_fun
-                .max_total_threads_per_threadgroup(),
-        );
-        compute.dispatch_threads(
-            MTLSize::new(c.length(), 1, 1),
-            MTLSize::new(threads_per_thread_group, 1, 1),
-        );
-        compute.end_encoding();
-    }
+        let arg_x = ArgumentDescriptor::new();
+        arg_x.set_data_type(MTLDataType::Pointer);
+        arg_x.set_index(6);
+        let arg_bp = ArgumentDescriptor::new();
+        arg_bp.set_data_type(MTLDataType::Pointer);
+        arg_bp.set_index(7);
+        let arg_p = ArgumentDescriptor::new();
+        arg_p.set_data_type(MTLDataType::Pointer);
+        arg_p.set_index(8);
+        let arg_r = ArgumentDescriptor::new();
+        arg_r.set_data_type(MTLDataType::Pointer);
+        arg_r.set_index(9);
+        let arg_row_offsets = ArgumentDescriptor::new();
+        arg_row_offsets.set_data_type(MTLDataType::Pointer);
+        arg_row_offsets.set_index(10);
+        let arg_col_indices = ArgumentDescriptor::new();
+        arg_col_indices.set_data_type(MTLDataType::Pointer);
+        arg_col_indices.set_index(11);
+        let arg_values = ArgumentDescriptor::new();
+        arg_values.set_data_type(MTLDataType::Pointer);
+        arg_values.set_index(12);
+        let arg_original = ArgumentDescriptor::new();
+        arg_original.set_data_type(MTLDataType::Pointer);
+        arg_original.set_index(13);
 
-    pub fn mpmmv_full(
-        &self,
-        beta: f16,
-        c: &Buffer,
-        alpha: f16,
-        row_offsets: &Buffer,
-        col_indices: &Buffer,
-        values: &Buffer,
-        b: &Buffer,
-        commands: &CommandBufferRef,
-    ) {
-        let compute = commands.new_compute_command_encoder();
+        let encoder = self.device.new_argument_encoder(Array::from_slice(&[
+            &arg_r_new_norm_squared,
+            &arg_r_norm_squared,
+            &arg_dot,
+            &arg_diff_squared,
+            &arg_alpha,
+            &arg_beta,
+            &arg_x,
+            &arg_bp,
+            &arg_p,
+            &arg_r,
+            &arg_row_offsets,
+            &arg_col_indices,
+            &arg_values,
+            &arg_original,
+        ]));
 
-        compute.set_compute_pipeline_state(&self.sparse_matrix_vector_prod_fun);
-        let beta = beta.to_le_bytes();
-        let alpha = alpha.to_le_bytes();
-        compute.set_bytes(0, size_of_val(&beta) as u64, beta.as_ptr() as *const c_void);
-        compute.set_buffer(1, Some(c), 0);
-        compute.set_bytes(
-            2,
-            size_of_val(&alpha) as u64,
-            alpha.as_ptr() as *const c_void,
+        let argument_buffer = self.device.new_buffer(
+            encoder.encoded_length(),
+            MTLResourceOptions::StorageModeShared,
         );
-        compute.set_buffer(3, Some(row_offsets), 0);
-        compute.set_buffer(4, Some(col_indices), 0);
-        compute.set_buffer(5, Some(values), 0);
-        compute.set_buffer(6, Some(b), 0);
-        let threads_per_thread_group = min(
-            c.length(),
-            self.mpmmv_full_fun.max_total_threads_per_threadgroup(),
+
+        let r_new_norm_squared = self.device.new_buffer_with_data(
+            0.0f32.to_le_bytes().as_ptr() as *const c_void,
+            size_of::<f32>() as u64,
+            MTLResourceOptions::CPUCacheModeDefaultCache,
         );
-        compute.dispatch_threads(
-            MTLSize::new(c.length(), 1, 1),
-            MTLSize::new(threads_per_thread_group, 1, 1),
+        let r_norm_squared = self.device.new_buffer_with_data(
+            0.0f32.to_le_bytes().as_ptr() as *const c_void,
+            size_of::<f32>() as u64,
+            MTLResourceOptions::CPUCacheModeDefaultCache,
         );
-        compute.end_encoding();
+        let dot = self.device.new_buffer_with_data(
+            0.0f32.to_le_bytes().as_ptr() as *const c_void,
+            size_of::<f32>() as u64,
+            MTLResourceOptions::CPUCacheModeDefaultCache,
+        );
+        let diff_squared = self.device.new_buffer_with_data(
+            0.0f32.to_le_bytes().as_ptr() as *const c_void,
+            size_of::<f32>() as u64,
+            MTLResourceOptions::CPUCacheModeDefaultCache,
+        );
+        let alpha = self.device.new_buffer_with_data(
+            f16::from_f32(0.0).to_le_bytes().as_ptr() as *const c_void,
+            size_of::<f16>() as u64,
+            MTLResourceOptions::CPUCacheModeDefaultCache,
+        );
+        let beta = self.device.new_buffer_with_data(
+            f16::from_f32(0.0).to_le_bytes().as_ptr() as *const c_void,
+            size_of::<f16>() as u64,
+            MTLResourceOptions::CPUCacheModeDefaultCache,
+        );
+        let bp = self
+            .device
+            .new_buffer(c.length(), MTLResourceOptions::StorageModePrivate);
+        let p = self
+            .device
+            .new_buffer(c.length(), MTLResourceOptions::StorageModePrivate);
+
+        encoder.set_argument_buffer(&argument_buffer, 0);
+        let data = [
+            &r_new_norm_squared, // [[id(0)]]
+            &r_norm_squared,     // [[id(1)]]
+            &dot,                // [[id(2)]]
+            &diff_squared,       // [[id(3)]]
+            &alpha,              // [[id(4)]]
+            &beta,               // [[id(5)]]
+            &x,                  // [[id(6)]]
+            &bp,                 // [[id(7)]]
+            &p,                  // [[id(8)]]
+            &r,                  // [[id(9)]]
+            &b_mat.row_offsets, // [[id(10)]]
+            &b_mat.col_indices, // [[id(11)]]
+            &b_mat.values,      // [[id(12)]]
+            &layer,              // [[id(13)]]
+        ];
+        let usage = [];
+        encoder.set_buffers(0, &data.map(AsRef::as_ref), &[0; 14]);
+        let cmd = self.default_queue.new_command_buffer();
+        let compute = cmd.new_compute_command_encoder();
+        compute.set_compute_pipeline_state(&self.cg_init);
+        compute.set_buffer(0, Some(&argument_buffer), 0);
+        compute.use_resource(data[10], MTLResourceUsage::Read);
+        compute.use_resource(data[11], MTLResourceUsage::Read);
+        compute.use_resource(data[12], MTLResourceUsage::Read);
+        compute.use_resource(data[6], MTLResourceUsage::Read);
+        compute.use_resource(data[8], MTLResourceUsage::Write);
+        compute.use_resource(data[9], MTLResourceUsage::Write);
+        (argument_buffer, data)
     }
 }
