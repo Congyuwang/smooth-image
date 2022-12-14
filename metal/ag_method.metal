@@ -21,14 +21,14 @@ struct AgMethodBuffers {
     device half* x_tmp [[id(1)]];
     device half* x_old [[id(2)]];
     device half* y [[id(3)]];
-    volatile device atomic_float* grad_norm [[id(4)]];
+    volatile device atomic_float* grad_norm_squared [[id(4)]];
     volatile device atomic_float* dot [[id(5)]];
     volatile device atomic_float* diff_squared [[id(6)]];
 
     // private
-    device const half& alpha [[id(7)]];
-    device half& beta [[id(8)]];
-    device half& t [[id(9)]];
+    device const half* alpha [[id(7)]];
+    device half* beta [[id(8)]];
+    device half* t [[id(9)]];
     device const half* c [[id(10)]];
     device const uint* row_offsets [[id(11)]];
     device const uint* col_indices [[id(12)]];
@@ -38,7 +38,7 @@ struct AgMethodBuffers {
 
 // reset dot, grad_norm
 kernel void ag_step_0_reset_grad_norm(device AgMethodBuffers& buffers) {
-    atomic_store_explicit(buffers.grad_norm, 0.0, memory_order_relaxed);
+    atomic_store_explicit(buffers.grad_norm_squared, 0.0, memory_order_relaxed);
     atomic_store_explicit(buffers.dot, 0.0, memory_order_relaxed);
     atomic_store_explicit(buffers.diff_squared, 0.0, memory_order_relaxed);
 }
@@ -51,8 +51,8 @@ kernel void ag_step_0_reset_grad_norm(device AgMethodBuffers& buffers) {
 // x <- (1 + beta) * x - beta * x_old
 kernel void ag_step_2_1_yk1(device AgMethodBuffers& buffers,
                             uint index [[thread_position_in_grid]]) {
-    half one_plus_beta = 1.0 + buffers.beta;
-    buffers.x[index] = one_plus_beta * buffers.x[index] - buffers.beta * buffers.x_old[index];
+    half one_plus_beta = 1.0 + *buffers.beta;
+    buffers.x[index] = one_plus_beta * buffers.x[index] - *buffers.beta * buffers.x_old[index];
 }
 
 // step_2_2
@@ -73,21 +73,21 @@ kernel void ag_step_3_bx_minus_c(device AgMethodBuffers& buffers,
 kernel void ag_step_4_grad_norm(device AgMethodBuffers& buffers,
                                 uint index [[thread_position_in_grid]]) {
     half x = buffers.x[index];
-    atomic_fetch_add_explicit(buffers.grad_norm, x * x, memory_order_relaxed);
+    atomic_fetch_add_explicit(buffers.grad_norm_squared, x * x, memory_order_relaxed);
 }
 
 // x = y - alpha * x
 kernel void ag_step_5_update_x(device AgMethodBuffers& buffers,
                                uint index [[thread_position_in_grid]]) {
-    buffers.x[index] = buffers.y[index] - buffers.alpha * buffers.x[index];
+    buffers.x[index] = buffers.y[index] - *buffers.alpha * buffers.x[index];
 }
 
 // update beta
 kernel void ag_step_6_update_beta(device AgMethodBuffers& buffers) {
-    half t = buffers.t;
+    half t = *buffers.t;
     half t_new = 0.5 + 0.5 * sqrt(1.0 + 4.0 * t * t);
-    buffers.beta = (t - 1.0) / t_new;
-    buffers.t = t_new;
+    *buffers.beta = (t - 1.0) / t_new;
+    *buffers.t = t_new;
 }
 
 kernel void ag_step_7_diff_squared(device AgMethodBuffers& buffers,

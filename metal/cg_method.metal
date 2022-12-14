@@ -20,8 +20,8 @@ struct CgMethodBuffers {
     volatile device atomic_float* r_norm_squared [[id(1)]];
     volatile device atomic_float* dot [[id(2)]];
     volatile device atomic_float* diff_squared [[id(3)]];
-    device half& alpha [[id(4)]];
-    device half& beta [[id(5)]];
+    device half* alpha [[id(4)]];
+    device half* beta [[id(5)]];
 
     // private
     device half* x [[id(6)]];
@@ -83,7 +83,7 @@ kernel void cg_step_3_1_dot_pbp(device CgMethodBuffers& buffers,
 //
 // execute in 1 * 1 * 1
 kernel void cg_step_3_2_alpha(device CgMethodBuffers& buffers) {
-    buffers.alpha = 1.0 / atomic_load_explicit(buffers.dot, memory_order_relaxed);
+    *buffers.alpha = 1.0 / atomic_load_explicit(buffers.dot, memory_order_relaxed);
 }
 
 // x = x + alpha * p
@@ -91,7 +91,7 @@ kernel void cg_step_3_2_alpha(device CgMethodBuffers& buffers) {
 // r = r + alpha * b * p
 kernel void cg_step_4_update_x(device CgMethodBuffers& buffers,
                                uint index [[thread_position_in_grid]]) {
-    half alpha = buffers.alpha;
+    half alpha = *buffers.alpha;
     buffers.x[index] += alpha * buffers.p[index];
     buffers.r[index] += alpha * buffers.bp[index];
 }
@@ -107,13 +107,13 @@ kernel void cg_step_5_1_new_norm_squared2(device CgMethodBuffers& buffers,
 //
 // execute in 1 * 1 * 1
 kernel void cg_step_5_2_beta(device CgMethodBuffers& buffers) {
-    buffers.beta = atomic_load_explicit(buffers.r_new_norm_squared, memory_order_relaxed) / atomic_load_explicit(buffers.r_norm_squared, memory_order_relaxed);
+    *buffers.beta = atomic_load_explicit(buffers.r_new_norm_squared, memory_order_relaxed) / atomic_load_explicit(buffers.r_norm_squared, memory_order_relaxed);
 }
 
 // p = beta * p - r
 kernel void cg_step_6_update_p(device CgMethodBuffers& buffers,
                                uint index [[thread_position_in_grid]]) {
-    buffers.p[index] = buffers.beta * buffers.p[index] - buffers.r[index];
+    buffers.p[index] = *buffers.beta * buffers.p[index] - buffers.r[index];
 }
 
 kernel void cg_step_7_diff_squared(device CgMethodBuffers& buffers,

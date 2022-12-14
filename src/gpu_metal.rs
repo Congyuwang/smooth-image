@@ -185,13 +185,13 @@ impl GpuLib {
         arg_diff_squared.set_index(6);
 
         let arg_alpha = ArgumentDescriptor::new();
-        arg_alpha.set_data_type(MTLDataType::Half);
+        arg_alpha.set_data_type(MTLDataType::Pointer);
         arg_alpha.set_index(7);
         let arg_beta = ArgumentDescriptor::new();
-        arg_beta.set_data_type(MTLDataType::Half);
+        arg_beta.set_data_type(MTLDataType::Pointer);
         arg_beta.set_index(8);
         let arg_t = ArgumentDescriptor::new();
-        arg_t.set_data_type(MTLDataType::Half);
+        arg_t.set_data_type(MTLDataType::Pointer);
         arg_t.set_index(9);
 
         let arg_c = ArgumentDescriptor::new();
@@ -326,10 +326,10 @@ impl GpuLib {
         arg_diff_squared.set_index(3);
 
         let arg_alpha = ArgumentDescriptor::new();
-        arg_alpha.set_data_type(MTLDataType::Half);
+        arg_alpha.set_data_type(MTLDataType::Pointer);
         arg_alpha.set_index(4);
         let arg_beta = ArgumentDescriptor::new();
-        arg_beta.set_data_type(MTLDataType::Half);
+        arg_beta.set_data_type(MTLDataType::Pointer);
         arg_beta.set_index(5);
 
         let arg_x = ArgumentDescriptor::new();
