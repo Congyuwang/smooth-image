@@ -22,24 +22,22 @@ struct AgMethodBuffers {
     device half* x_old [[id(2)]];
     device half* y [[id(3)]];
     volatile device atomic_float* grad_norm_squared [[id(4)]];
-    volatile device atomic_float* dot [[id(5)]];
-    volatile device atomic_float* diff_squared [[id(6)]];
+    volatile device atomic_float* diff_squared [[id(5)]];
 
     // private
-    device const half* alpha [[id(7)]];
-    device half* beta [[id(8)]];
-    device half* t [[id(9)]];
-    device const half* c [[id(10)]];
-    device const uint* row_offsets [[id(11)]];
-    device const uint* col_indices [[id(12)]];
-    device const half* values [[id(13)]];
-    device const half* original [[id(14)]];
+    device const half* alpha [[id(6)]];
+    device half* beta [[id(7)]];
+    device half* t [[id(8)]];
+    device const half* c [[id(9)]];
+    device const uint* row_offsets [[id(10)]];
+    device const uint* col_indices [[id(11)]];
+    device const half* values [[id(12)]];
+    device const half* original [[id(13)]];
 };
 
 // reset dot, grad_norm
 kernel void ag_step_0_reset_grad_norm(device AgMethodBuffers& buffers) {
     atomic_store_explicit(buffers.grad_norm_squared, 0.0, memory_order_relaxed);
-    atomic_store_explicit(buffers.dot, 0.0, memory_order_relaxed);
     atomic_store_explicit(buffers.diff_squared, 0.0, memory_order_relaxed);
 }
 
