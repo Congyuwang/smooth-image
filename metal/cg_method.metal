@@ -47,8 +47,6 @@ kernel void cg_init(device CgMethodBuffers& buffers,
 
 // execute in 1 * 1 * 1
 kernel void cg_step_0_reset_alpha_beta(device CgMethodBuffers& buffers) {
-    buffers.alpha = 0;
-    buffers.beta = 0;
     atomic_store_explicit(buffers.r_new_norm_squared, 0.0, memory_order_relaxed);
     atomic_store_explicit(buffers.r_norm_squared, 0.0, memory_order_relaxed);
     atomic_store_explicit(buffers.dot, 0.0, memory_order_relaxed);
