@@ -16,21 +16,32 @@ using namespace metal;
 // IMPORTANT: remember to reset r_new_norm_squared, r_norm_squared, dot to 0 on cpu before each run!!!
 struct CgMethodBuffers {
     // private
-    volatile device atomic_float* r_new_norm_squared;
-    volatile device atomic_float* r_norm_squared;
-    volatile device atomic_float* dot;
-    volatile device atomic_float* diff_squared;
-    device half& alpha;
-    device half& beta;
-    device half* x;
-    device half* bp;
-    device half* p;
-    device half* r;
-    device const uint* row_offsets;
-    device const uint* col_indices;
-    device const half* values;
-    device const half* original;
+    volatile device atomic_float* r_new_norm_squared [[id(0)]];
+    volatile device atomic_float* r_norm_squared [[id(1)]];
+    volatile device atomic_float* dot [[id(2)]];
+    volatile device atomic_float* diff_squared [[id(3)]];
+    device half& alpha [[id(4)]];
+    device half& beta [[id(5)]];
+    device half* x [[id(6)]];
+    device half* bp [[id(7)]];
+    device half* p [[id(8)]];
+    device half* r [[id(9)]];
+    device const uint* row_offsets [[id(10)]];
+    device const uint* col_indices [[id(11)]];
+    device const half* values [[id(12)]];
+    device const half* original [[id(13)]];
 };
+
+kernel void cg_init(device CgMethodBuffers& buffers,
+                    uint index [[thread_position_in_grid]]) {
+    const uint p1 = buffers.row_offsets[index + 1];
+    half dot = 0.0;
+    for (uint p = buffers.row_offsets[index]; p < p1; p++) {
+        dot += buffers.values[p] * buffers.x[p];
+    }
+    buffers.r[index] = -buffers.r[index] + dot;
+    buffers.p[index] = -buffers.r[index];
+}
 
 // execute in 1 * 1 * 1
 kernel void cg_step_0_reset_alpha_beta(device CgMethodBuffers& buffers) {
@@ -104,7 +115,7 @@ kernel void cg_step_6_update_p(device CgMethodBuffers& buffers,
 }
 
 kernel void cg_step_7_diff_squared(device CgMethodBuffers& buffers,
-                 uint index [[thread_position_in_grid]]) {
+                                   uint index [[thread_position_in_grid]]) {
     half diff = buffers.x[index] - buffers.original[index];
     atomic_fetch_add_explicit(buffers.diff_squared, diff * diff, memory_order_relaxed);
 }

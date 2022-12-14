@@ -17,21 +17,21 @@ using namespace metal;
 // IMPORTANT: remember to reset r_new_norm_squared, r_norm_squared, dot to 0 on cpu before each run!!!
 struct AgMethodBuffers {
     // private
-    device half* x;
-    device half* x_tmp;
-    device half* x_old;
-    device half* y;
-    volatile device atomic_float* grad_norm;
-    volatile device atomic_float* dot;
-    volatile device atomic_float* diff_squared;
-    device const half& alpha;
-    device half& beta;
-    device half& t;
-    device const half* c;
-    device const uint* row_offsets;
-    device const uint* col_indices;
-    device const half* values;
-    device const half* original;
+    device half* x [[id(0)]];
+    device half* x_tmp [[id(1)]];
+    device half* x_old [[id(2)]];
+    device half* y [[id(3)]];
+    volatile device atomic_float* grad_norm [[id(4)]];
+    volatile device atomic_float* dot [[id(5)]];
+    volatile device atomic_float* diff_squared [[id(6)]];
+    device const half& alpha [[id(7)]];
+    device half& beta [[id(8)]];
+    device half& t [[id(9)]];
+    device const half* c [[id(10)]];
+    device const uint* row_offsets [[id(11)]];
+    device const uint* col_indices [[id(12)]];
+    device const half* values [[id(13)]];
+    device const half* original [[id(14)]];
 };
 
 // reset dot, grad_norm
@@ -89,7 +89,7 @@ kernel void ag_step_6_update_beta(device AgMethodBuffers& buffers) {
 }
 
 kernel void ag_step_7_diff_squared(device AgMethodBuffers& buffers,
-                 uint index [[thread_position_in_grid]]) {
+                                   uint index [[thread_position_in_grid]]) {
     half diff = buffers.x[index] - buffers.original[index];
     atomic_fetch_add_explicit(buffers.diff_squared, diff * diff, memory_order_relaxed);
 }
