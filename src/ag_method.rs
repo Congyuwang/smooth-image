@@ -1,5 +1,9 @@
+use std::ptr::slice_from_raw_parts;
+use half::f16;
+use metal::{Buffer, MTLResourceOptions};
 use crate::error::{Error::ErrorMessage, Result};
-use crate::simd::{axpby, norm_squared, sparse_matrix_vector_prod, subtract_from, CsrMatrixF32};
+use crate::gpu_metal::GpuLib;
+use crate::inpaint_worker::CsrMatrixF16;
 
 /// f(x) = ||a * x - b ||^2 / 2 + mu / 2 * ||D * x||^2
 /// Df(x) = (A^T * A + mu * D^T * D) * x - A^T * b
@@ -7,69 +11,71 @@ use crate::simd::{axpby, norm_squared, sparse_matrix_vector_prod, subtract_from,
 /// B_mat = A^T * A + mu * D^T * D
 /// c = A^T * b
 #[inline(always)]
-fn ag_method_unchecked<CB: FnMut(i32, &[f32], f32)>(
-    b_mat: &CsrMatrixF32,
-    c: Vec<f32>,
+fn ag_method_unchecked<CB: FnMut(i32, f32, f32)>(
+    b_mat: &CsrMatrixF16,
+    c: Buffer,
     mu: f32,
-    mut x: Vec<f32>,
+    layer: Buffer,
+    x: Buffer,
     tol: f32,
     metric_step: i32,
     mut metric_cb: CB,
-) -> (Vec<f32>, i32) {
-    // constants
-    let l = 1.0 + 8.0 * mu;
-    let alpha = 1.0 / l;
-
-    // init
-    let mut t = 1.0f32;
-    let mut beta = 0.0f32;
-    let mut y = vec![0.0f32; x.len()];
-    let mut x_tmp = vec![0.0f32; x.len()];
-    let mut x_old = x.clone();
+    gpu: &GpuLib,
+) -> (Vec<u8>, i32) {
+    let size = b_mat.nrows();
+    let (arg, data) = gpu.init_ag_argument(b_mat, c, layer, mu, x);
     let mut iter_round = 0;
+    let queue = gpu.new_queue();
+    let mut command = gpu.iter_ag(&arg, &data, &queue, size as u64);
+    command.commit();
     loop {
-        // execute the following x = (1 + beta) * z * x - beta * z * x_old + alpha * c;
+        let new_command = gpu.iter_ag(&arg, &data, &queue, size as u64);
+        command.wait_until_completed();
 
-        // 1. x_tmp for memorizing x
-        x_tmp.copy_from_slice(&x);
-        // 2. x is now y^k+1
-        axpby(-beta, &x_old, 1.0 + beta, &mut x);
-        y.copy_from_slice(&x);
-        // 3. x is now Df(y^k+1)
-        sparse_matrix_vector_prod(&mut x, b_mat, &y);
-        subtract_from(&mut x, &c);
-        let grad_norm = norm_squared(&x).sqrt();
-        // metric callback
-        if metric_step > 0 && iter_round % metric_step == 0 {
-            metric_cb(iter_round, &y, grad_norm);
-        }
+        let grad_norm = unsafe { *(data[4].contents() as *mut f32) }.sqrt();
+        let diff_squared = unsafe { *(data[6].contents() as *mut f32) };
+
+        // check return condition
         if grad_norm <= tol {
-            return (y, iter_round);
+            let queue = gpu.new_queue();
+            let cmd = queue.new_command_buffer();
+            let y_data = data[3];
+            let new_y_buffer = gpu
+                .device()
+                .new_buffer(y_data.length(), MTLResourceOptions::StorageModeShared);
+            gpu.copy_from_buffer(y_data, &new_y_buffer, cmd);
+            cmd.commit();
+            cmd.wait_until_completed();
+            let result = slice_from_raw_parts(y_data.contents() as *const f16, size).iter().map(|f| {
+                (f.to_f32() * 256.0f32) as u8
+            }).collect::<Vec<_>>();
+            return (result, iter_round);
         }
-        // 4. x in now x^k+1
-        axpby(1.0, &y, -alpha, &mut x);
-        // 5. put x_tmp back
-        x_old.copy_from_slice(&x_tmp);
 
-        // update beta
-        let t_new = 0.5 + 0.5 * (1.0 + 4.0 * t * t).sqrt();
-        beta = (t - 1.0) / t_new;
-        t = t_new;
+        new_command.commit();
+        command = new_command;
+
+        // metric callback and return condition
+        if metric_step > 0 && iter_round % metric_step == 0 {
+            metric_cb(iter_round, diff_squared, grad_norm);
+        }
 
         // inc iter_round
         iter_round += 1;
     }
 }
 
-pub fn ag_method<CB: FnMut(i32, &[f32], f32)>(
-    b_mat: &CsrMatrixF32,
-    c: Vec<f32>,
+pub fn ag_method<CB: FnMut(i32, f32, f32)>(
+    b_mat: &CsrMatrixF16,
+    c: Buffer,
     mu: f32,
-    x: Vec<f32>,
+    layer: Buffer,
+    x: Buffer,
     tol: f32,
     metric_step: i32,
     metric_cb: CB,
-) -> Result<(Vec<f32>, i32)> {
+    gpu: &GpuLib,
+) -> Result<(Vec<u8>, i32)> {
     if tol <= 0.0 {
         return Err(ErrorMessage(format!("tol must be positive (tol={tol})")));
     }
@@ -98,9 +104,11 @@ pub fn ag_method<CB: FnMut(i32, &[f32], f32)>(
         b_mat,
         c,
         mu,
+        layer,
         x,
         tol,
         metric_step,
         metric_cb,
+        gpu,
     ))
 }

@@ -1,67 +1,77 @@
+use std::ptr::{slice_from_raw_parts, slice_from_raw_parts_mut};
 use crate::error::Error::ErrorMessage;
 use crate::error::Result;
-use crate::simd::{
-    axpby, axpy, dot, neg, norm_squared, sparse_matrix_vector_prod, spmmv_dense, CsrMatrixF32,
-};
+use crate::gpu_metal::GpuLib;
+use crate::inpaint_worker::CsrMatrixF16;
+use half::f16;
+use metal::{Buffer, ComputePipelineDescriptor, ComputePipelineState, MTLResourceOptions};
 
 /// B_mat = A^T * A + mu * D^T * D
 /// c = A^T * b
 #[inline(always)]
-fn cg_method_unchecked<CB: FnMut(i32, &[f32], f32)>(
-    b_mat: &CsrMatrixF32,
-    mut c: Vec<f32>,
-    mut x: Vec<f32>,
+fn cg_method_unchecked<CB: FnMut(i32, f32, f32)>(
+    b_mat: &CsrMatrixF16,
+    c: Buffer,
+    layer: Buffer,
+    x: Buffer,
     tol: f32,
     metric_step: i32,
     mut metric_cb: CB,
-) -> (Vec<f32>, i32) {
-    // r = c
-    let r = c.as_mut_slice();
-    // r = -r + b * x
-    spmmv_dense(-1.0, r, 1.0, b_mat, &x);
-    // p = -r
-    let mut p = Vec::from(&*r);
-    neg(&mut p);
+    gpu: &GpuLib,
+) -> (Vec<u8>, i32) {
+    let size = b_mat.nrows();
+    let (arg, data) = gpu.init_cg_argument(b_mat, c, layer, x);
     let mut iter_round = 0;
-    let mut bp = vec![0.0f32; b_mat.nrows()];
+    let queue = gpu.new_queue();
+    let mut command = gpu.iter_cg(&arg, &data, &queue, size as u64);
+    command.commit();
     loop {
-        // ||r||2
-        let r_norm_squared = norm_squared(r);
-        // b * p (the only allocation in the loop)
-        sparse_matrix_vector_prod(&mut bp, b_mat, &p);
-        // alpha = ||r||2 / (p' * b * p)
-        let alpha = r_norm_squared / dot(&p, &bp);
-        // x = x + alpha * p
-        axpy(alpha, &p, &mut x);
-        // r = r + alpha * b * p
-        axpy(alpha, &bp, r);
-        let r_new_norm_squared = norm_squared(r);
-        let r_new_norm = r_new_norm_squared.sqrt();
-        // metric callback
-        if metric_step > 0 && iter_round % metric_step == 0 {
-            metric_cb(iter_round, &x, r_new_norm);
-        }
-        // return condition
+        // running GPU and CPU in parallel
+        let new_command = gpu.iter_cg(&arg, &data, &queue, size as u64);
+        command.wait_until_completed();
+
+        let r_new_norm = unsafe { *(data[0].contents() as *mut f32) }.sqrt();
+        let diff_squared = unsafe { *(data[3].contents() as *mut f32) };
+
+        // check return condition
         if r_new_norm <= tol {
-            return (x, iter_round);
+            let queue = gpu.new_queue();
+            let cmd = queue.new_command_buffer();
+            let x_data = data[6];
+            let new_x_buffer = gpu
+                .device()
+                .new_buffer(x_data.length(), MTLResourceOptions::StorageModeShared);
+            gpu.copy_from_buffer(x_data, &new_x_buffer, cmd);
+            cmd.commit();
+            cmd.wait_until_completed();
+            let result = slice_from_raw_parts(x_data.contents() as *const f16, size).iter().map(|f| {
+                (f.to_f32() * 256.0f32) as u8
+            }).collect::<Vec<_>>();
+            return (result, iter_round);
         }
-        let beta = r_new_norm_squared / r_norm_squared;
-        // p = beta * p - r
-        axpby(-1.0, r, beta, &mut p);
+
+        new_command.commit();
+        command = new_command;
+
+        // metric callback and return condition
+        if metric_step > 0 && iter_round % metric_step == 0 {
+            metric_cb(iter_round, diff_squared, r_new_norm);
+        }
 
         // inc iter_round
         iter_round += 1;
     }
 }
 
-pub fn cg_method<CB: FnMut(i32, &[f32], f32)>(
-    b_mat: &CsrMatrixF32,
-    c: Vec<f32>,
-    x: Vec<f32>,
+pub fn cg_method<CB: FnMut(i32, f32, f32)>(
+    b_mat: &CsrMatrixF16,
+    c: Buffer,
+    layer: Buffer,
+    x: Buffer,
     tol: f32,
     metric_step: i32,
     metric_cb: CB,
-) -> Result<(Vec<f32>, i32)> {
+) -> Result<(Vec<u8>, i32)> {
     if tol <= 0.0 {
         return Err(ErrorMessage(format!("tol must be positive (tol={tol})")));
     }
@@ -89,9 +99,11 @@ pub fn cg_method<CB: FnMut(i32, &[f32], f32)>(
     Ok(cg_method_unchecked(
         b_mat,
         c,
+        layer,
         x,
         tol,
         metric_step,
         metric_cb,
+        gpu,
     ))
 }

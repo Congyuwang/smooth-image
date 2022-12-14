@@ -1,7 +1,8 @@
 use crate::inpaint_worker::CsrMatrixF16;
+use clap::command;
 use half::f16;
 use metal::*;
-use std::cmp::min;
+use std::cmp::{max, min};
 use std::ffi::c_void;
 use std::mem;
 use std::mem::{size_of, size_of_val, transmute};
@@ -21,12 +22,14 @@ pub struct GpuLib {
     cg_step_5_1_new_norm_squared2: ComputePipelineState,
     cg_step_5_2_beta: ComputePipelineState,
     cg_step_6_update_p: ComputePipelineState,
+    cg_step_7_diff_squared: ComputePipelineState,
     ag_step_0_reset_grad_norm: ComputePipelineState,
     ag_step_2_1_yk1: ComputePipelineState,
     ag_step_3_bx_minus_c: ComputePipelineState,
     ag_step_4_grad_norm: ComputePipelineState,
     ag_step_5_update_x: ComputePipelineState,
     ag_step_6_update_beta: ComputePipelineState,
+    ag_step_7_diff_squared: ComputePipelineState,
 }
 
 fn init_module() -> GpuLib {
@@ -52,12 +55,14 @@ fn init_module() -> GpuLib {
         cg_step_5_1_new_norm_squared2: get_func("cg_step_5_1_new_norm_squared2", &lib, &device),
         cg_step_5_2_beta: get_func("cg_step_5_2_beta", &lib, &device),
         cg_step_6_update_p: get_func("cg_step_6_update_p", &lib, &device),
+        cg_step_7_diff_squared: get_func("cg_step_7_diff_squared", &lib, &device),
         ag_step_0_reset_grad_norm: get_func("ag_step_0_reset_grad_norm", &lib, &device),
         ag_step_2_1_yk1: get_func("ag_step_2_1_yk1", &lib, &device),
         ag_step_3_bx_minus_c: get_func("ag_step_3_bx_minus_c", &lib, &device),
         ag_step_4_grad_norm: get_func("ag_step_4_grad_norm", &lib, &device),
         ag_step_5_update_x: get_func("ag_step_5_update_x", &lib, &device),
         ag_step_6_update_beta: get_func("ag_step_6_update_beta", &lib, &device),
+        ag_step_7_diff_squared: get_func("ag_step_7_diff_squared", &lib, &device),
     }
 }
 
@@ -73,6 +78,14 @@ fn get_func(name: &str, lib: &Library, device: &Device) -> ComputePipelineState 
 impl GpuLib {
     pub fn init() -> Self {
         init_module()
+    }
+
+    pub fn device(&self) -> &Device {
+        &self.device
+    }
+
+    pub fn new_queue(&self) -> CommandQueue {
+        self.device.new_command_queue()
     }
 
     pub fn private_buffer_u32(&self, data: &[usize]) -> (Buffer, &CommandBufferRef) {
@@ -143,6 +156,7 @@ impl GpuLib {
     }
 
     pub fn copy_from_buffer(&self, src: &Buffer, dest: &Buffer, commands: &CommandBufferRef) {
+        let buf_size = src.length();
         let blit_pass = commands.new_blit_command_encoder();
         blit_pass.copy_from_buffer(src, 0, dest, 0, buf_size);
         blit_pass.end_encoding();
@@ -237,7 +251,7 @@ impl GpuLib {
         let x_old = self
             .device
             .new_buffer(x.length(), MTLResourceOptions::StorageModePrivate);
-        let grad_norm = self.device.new_buffer_with_data(
+        let grad_norm_squared = self.device.new_buffer_with_data(
             0.0f32.to_le_bytes().as_ptr() as *const c_void,
             size_of::<f32>() as u64,
             MTLResourceOptions::CPUCacheModeDefaultCache,
@@ -270,32 +284,32 @@ impl GpuLib {
 
         encoder.set_argument_buffer(&argument_buffer, 0);
         let data = [
-            &x,
-            &x_tmp,
-            &x_old,
-            &y,
-            &grad_norm,
-            &dot,
-            &diff_squared,
-            &alpha,
-            &beta,
-            &t,
-            &c,
-            &b_mat.row_offsets,
-            &b_mat.col_indices,
-            &b_mat.values,
-            &layer,
+            &x,                 // [[id(0)]]
+            &x_tmp,             // [[id(1)]]
+            &x_old,             // [[id(2)]]
+            &y,                 // [[id(3)]]
+            &grad_norm_squared, // [[id(4)]]
+            &dot,               // [[id(5)]]
+            &diff_squared,      // [[id(6)]]
+            &alpha,             // [[id(7)]]
+            &beta,              // [[id(8)]]
+            &t,                 // [[id(9)]]
+            &c,                 // [[id(10)]]
+            &b_mat.row_offsets, // [[id(11)]]
+            &b_mat.col_indices, // [[id(12)]]
+            &b_mat.values,      // [[id(13)]]
+            &layer,             // [[id(14)]]
         ];
-        encoder.set_buffers(0, &data, &[0; 15]);
+        encoder.set_buffers(0, &data.map(AsRef::as_ref), &[0; 15]);
         (argument_buffer, data)
     }
 
     pub fn init_cg_argument(
         &self,
         b_mat: &CsrMatrixF16,
-        c: &Buffer,
-        layer: &Buffer,
-        x: &Buffer,
+        c: Buffer,
+        layer: Buffer,
+        x: Buffer,
     ) -> (Buffer, [&Buffer; 14]) {
         let arg_r_new_norm_squared = ArgumentDescriptor::new();
         arg_r_new_norm_squared.set_data_type(MTLDataType::Pointer);
@@ -413,12 +427,11 @@ impl GpuLib {
             &bp,                 // [[id(7)]]
             &p,                  // [[id(8)]]
             &r,                  // [[id(9)]]
-            &b_mat.row_offsets, // [[id(10)]]
-            &b_mat.col_indices, // [[id(11)]]
-            &b_mat.values,      // [[id(12)]]
+            &b_mat.row_offsets,  // [[id(10)]]
+            &b_mat.col_indices,  // [[id(11)]]
+            &b_mat.values,       // [[id(12)]]
             &layer,              // [[id(13)]]
         ];
-        let usage = [];
         encoder.set_buffers(0, &data.map(AsRef::as_ref), &[0; 14]);
         let cmd = self.default_queue.new_command_buffer();
         let compute = cmd.new_compute_command_encoder();
@@ -431,5 +444,216 @@ impl GpuLib {
         compute.use_resource(data[8], MTLResourceUsage::Write);
         compute.use_resource(data[9], MTLResourceUsage::Write);
         (argument_buffer, data)
+    }
+
+    // return r_new_norm_squared and diff_squared on each round
+    pub fn iter_cg(
+        &self,
+        arg: &Buffer,
+        data: &[&Buffer; 14],
+        queue: &CommandQueue,
+        size: u64,
+    ) -> &CommandBufferRef {
+        let read_write = data[..10]
+            .iter()
+            .map(|&d| AsRef::<ResourceRef>::as_ref(d))
+            .collect::<Vec<_>>();
+        let read_only = data[10..]
+            .iter()
+            .map(|&d| AsRef::<ResourceRef>::as_ref(d))
+            .collect::<Vec<_>>();
+
+        let set_arg = |encoder: &ComputeCommandEncoderRef| {
+            encoder.set_buffer(0, Some(arg), 0);
+            encoder.use_resources(
+                &read_write,
+                MTLResourceUsage::Write | MTLResourceUsage::Read,
+            );
+            encoder.use_resources(&read_only, MTLResourceUsage::Read);
+            encoder.end_encoding();
+        };
+
+        let command = queue.new_command_buffer();
+        let step_0 = command.new_compute_command_encoder();
+        step_0.set_compute_pipeline_state(&self.cg_step_0_reset_alpha_beta);
+        step_0.dispatch_threads(MTLSize::new(1, 1, 1), MTLSize::new(1, 1, 1));
+        set_arg(step_0);
+
+        let step_1 = command.new_compute_command_encoder();
+        step_1.set_compute_pipeline_state(&self.cg_step_1_norm_squared2);
+        let max_threads = self
+            .cg_step_1_norm_squared2
+            .max_total_threads_per_threadgroup();
+        step_1.dispatch_threads(
+            MTLSize::new(size, 1, 1),
+            MTLSize::new(min(max_threads, size), 1, 1),
+        );
+        set_arg(step_1);
+
+        let step_2 = command.new_compute_command_encoder();
+        step_2.set_compute_pipeline_state(&self.cg_step_2_bp);
+        let max_threads = self.cg_step_2_bp.max_total_threads_per_threadgroup();
+        step_2.dispatch_threads(
+            MTLSize::new(size, 1, 1),
+            MTLSize::new(min(max_threads, size), 1, 1),
+        );
+        set_arg(step_2);
+
+        let step_3_1 = command.new_compute_command_encoder();
+        step_3_1.set_compute_pipeline_state(&self.cg_step_3_1_dot_pbp);
+        let max_threads = self.cg_step_3_1_dot_pbp.max_total_threads_per_threadgroup();
+        step_3_1.dispatch_threads(
+            MTLSize::new(size, 1, 1),
+            MTLSize::new(min(max_threads, size), 1, 1),
+        );
+        set_arg(step_3_1);
+
+        let step_3_2 = command.new_compute_command_encoder();
+        step_3_2.set_compute_pipeline_state(&self.cg_step_3_2_alpha);
+        step_3_2.dispatch_threads(MTLSize::new(1, 1, 1), MTLSize::new(1, 1, 1));
+        set_arg(step_3_2);
+
+        let step_4 = command.new_compute_command_encoder();
+        step_4.set_compute_pipeline_state(&self.cg_step_4_update_x);
+        let max_threads = self.cg_step_4_update_x.max_total_threads_per_threadgroup();
+        step_4.dispatch_threads(
+            MTLSize::new(size, 1, 1),
+            MTLSize::new(min(max_threads, size), 1, 1),
+        );
+        set_arg(step_4);
+
+        let step_5_1 = command.new_compute_command_encoder();
+        step_5_1.set_compute_pipeline_state(&self.cg_step_5_1_new_norm_squared2);
+        let max_threads = self
+            .cg_step_5_1_new_norm_squared2
+            .max_total_threads_per_threadgroup();
+        step_5_1.dispatch_threads(
+            MTLSize::new(size, 1, 1),
+            MTLSize::new(min(max_threads, size), 1, 1),
+        );
+        set_arg(step_5_1);
+
+        let step_5_2 = command.new_compute_command_encoder();
+        step_5_2.set_compute_pipeline_state(&self.cg_step_5_2_beta);
+        step_5_2.dispatch_threads(MTLSize::new(1, 1, 1), MTLSize::new(1, 1, 1));
+        set_arg(step_5_2);
+
+        let step_6 = command.new_compute_command_encoder();
+        step_6.set_compute_pipeline_state(&self.cg_step_6_update_p);
+        let max_threads = self.cg_step_6_update_p.max_total_threads_per_threadgroup();
+        step_6.dispatch_threads(
+            MTLSize::new(size, 1, 1),
+            MTLSize::new(min(max_threads, size), 1, 1),
+        );
+        set_arg(step_6);
+
+        let step_7 = command.new_compute_command_encoder();
+        step_7.set_compute_pipeline_state(&self.cg_step_7_diff_squared);
+        let max_threads = self
+            .cg_step_7_diff_squared
+            .max_total_threads_per_threadgroup();
+        step_7.dispatch_threads(
+            MTLSize::new(size, 1, 1),
+            MTLSize::new(min(max_threads, size), 1, 1),
+        );
+        set_arg(step_7);
+
+        command
+    }
+
+    pub fn iter_ag(
+        &self,
+        arg: &Buffer,
+        data: &[&Buffer; 15],
+        queue: &CommandQueue,
+        size: u64,
+    ) -> &CommandBufferRef {
+        let read_write = data[..11]
+            .iter()
+            .map(|&d| AsRef::<ResourceRef>::as_ref(d))
+            .collect::<Vec<_>>();
+        let read_only = data[11..]
+            .iter()
+            .map(|&d| AsRef::<ResourceRef>::as_ref(d))
+            .collect::<Vec<_>>();
+
+        let set_arg = |encoder: &ComputeCommandEncoderRef| {
+            encoder.set_buffer(0, Some(arg), 0);
+            encoder.use_resources(
+                &read_write,
+                MTLResourceUsage::Write | MTLResourceUsage::Read,
+            );
+            encoder.use_resources(&read_only, MTLResourceUsage::Read);
+            encoder.end_encoding();
+        };
+
+        let command = queue.new_command_buffer();
+
+        let step_0 = command.new_compute_command_encoder();
+        step_0.set_compute_pipeline_state(&self.ag_step_0_reset_grad_norm);
+        step_0.dispatch_threads(MTLSize::new(1, 1, 1), MTLSize::new(1, 1, 1));
+        set_arg(step_0);
+
+        // step 1: x_tmp <- x
+        self.copy_from_buffer(data[0], data[1], command);
+
+        let step_2 = command.new_compute_command_encoder();
+        step_2.set_compute_pipeline_state(&self.ag_step_2_1_yk1);
+        let max_threads = self.ag_step_2_1_yk1.max_total_threads_per_threadgroup();
+        step_2.dispatch_threads(
+            MTLSize::new(size, 1, 1),
+            MTLSize::new(min(max_threads, size), 1, 1),
+        );
+        set_arg(step_2);
+
+        // step_2_2: y <- x
+        self.copy_from_buffer(data[0], data[3], command);
+
+        let step_3 = command.new_compute_command_encoder();
+        step_3.set_compute_pipeline_state(&self.ag_step_3_bx_minus_c);
+        let max_threads = self
+            .ag_step_3_bx_minus_c
+            .max_total_threads_per_threadgroup();
+        step_3.dispatch_threads(
+            MTLSize::new(size, 1, 1),
+            MTLSize::new(min(max_threads, size), 1, 1),
+        );
+        set_arg(step_3);
+
+        let step_4 = command.new_compute_command_encoder();
+        step_4.set_compute_pipeline_state(&self.ag_step_4_grad_norm);
+        let max_threads = self.ag_step_4_grad_norm.max_total_threads_per_threadgroup();
+        step_4.dispatch_threads(
+            MTLSize::new(size, 1, 1),
+            MTLSize::new(min(max_threads, size), 1, 1),
+        );
+        set_arg(step_4);
+
+        let step_5 = command.new_compute_command_encoder();
+        step_5.set_compute_pipeline_state(&self.ag_step_5_update_x);
+        let max_threads = self.ag_step_5_update_x.max_total_threads_per_threadgroup();
+        step_5.dispatch_threads(
+            MTLSize::new(size, 1, 1),
+            MTLSize::new(min(max_threads, size), 1, 1),
+        );
+        set_arg(step_5);
+
+        let step_6 = command.new_compute_command_encoder();
+        step_6.set_compute_pipeline_state(&self.ag_step_6_update_beta);
+        step_6.dispatch_threads(MTLSize::new(1, 1, 1), MTLSize::new(1, 1, 1));
+        set_arg(step_6);
+
+        let step_7 = command.new_compute_command_encoder();
+        step_7.set_compute_pipeline_state(&self.ag_step_7_diff_squared);
+        let max_threads = self
+            .ag_step_7_diff_squared
+            .max_total_threads_per_threadgroup();
+        step_7.dispatch_threads(
+            MTLSize::new(size, 1, 1),
+            MTLSize::new(min(max_threads, size), 1, 1),
+        );
+        set_arg(step_7);
+
+        command
     }
 }
