@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 /// c = A^T * b
 #[inline(always)]
 fn ag_method_unchecked<CB: FnMut(i32, f32, f32)>(
-    b_mat: &CsrMatrixF16,
+    b_mat: &Arc<Mutex<CsrMatrixF16>>,
     (c, layer, x): (Buffer, Buffer, Buffer),
     mu: f32,
     tol: f32,
@@ -22,7 +22,7 @@ fn ag_method_unchecked<CB: FnMut(i32, f32, f32)>(
     mut metric_cb: CB,
     gpu: &Arc<Mutex<GpuLib>>,
 ) -> (Vec<u8>, i32) {
-    let size = b_mat.nrows();
+    let size = b_mat.lock().unwrap().nrows();
     let (arg, data) = gpu.lock().unwrap().init_ag_argument(b_mat, c, layer, mu, x);
     let mut iter_round = 0;
     let queue = gpu.lock().unwrap().new_queue();
@@ -79,7 +79,7 @@ fn ag_method_unchecked<CB: FnMut(i32, f32, f32)>(
 }
 
 pub fn ag_method<CB: FnMut(i32, f32, f32)>(
-    b_mat: &CsrMatrixF16,
+    b_mat: &Arc<Mutex<CsrMatrixF16>>,
     (c, layer, x): (Buffer, Buffer, Buffer),
     mu: f32,
     tol: f32,
@@ -90,26 +90,29 @@ pub fn ag_method<CB: FnMut(i32, f32, f32)>(
     if tol <= 0.0 {
         return Err(ErrorMessage(format!("tol must be positive (tol={tol})")));
     }
-    if b_mat.ncols() != b_mat.nrows() {
-        return Err(ErrorMessage(format!(
-            "B should be square. #B.rows: {} != #B.cols: {}",
-            b_mat.ncols(),
-            b_mat.ncols()
-        )));
-    }
-    if x.length() as usize / size_of::<f16>() != b_mat.ncols() {
-        return Err(ErrorMessage(format!(
-            "#x.rows={} should equal to #B.cols={}",
-            x.length() as usize / size_of::<f16>(),
-            b_mat.ncols()
-        )));
-    }
-    if c.length() as usize / size_of::<f16>() != b_mat.nrows() {
-        return Err(ErrorMessage(format!(
-            "#c.rows={} should equal to #B.rows={}",
-            c.length() as usize / size_of::<f16>(),
-            b_mat.nrows()
-        )));
+    {
+        let b_mat = b_mat.lock().unwrap();
+        if b_mat.ncols() != b_mat.nrows() {
+            return Err(ErrorMessage(format!(
+                "B should be square. #B.rows: {} != #B.cols: {}",
+                b_mat.ncols(),
+                b_mat.ncols()
+            )));
+        }
+        if x.length() as usize / size_of::<f16>() != b_mat.ncols() {
+            return Err(ErrorMessage(format!(
+                "#x.rows={} should equal to #B.cols={}",
+                x.length() as usize / size_of::<f16>(),
+                b_mat.ncols()
+            )));
+        }
+        if c.length() as usize / size_of::<f16>() != b_mat.nrows() {
+            return Err(ErrorMessage(format!(
+                "#c.rows={} should equal to #B.rows={}",
+                c.length() as usize / size_of::<f16>(),
+                b_mat.nrows()
+            )));
+        }
     }
     Ok(ag_method_unchecked(
         b_mat,

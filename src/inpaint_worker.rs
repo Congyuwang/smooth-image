@@ -97,7 +97,6 @@ pub struct CsrMatrixF16 {
 }
 
 unsafe impl Send for CsrMatrixF16 {}
-unsafe impl Sync for CsrMatrixF16 {}
 
 impl CsrMatrixF16 {
     pub fn nrows(&self) -> usize {
@@ -156,7 +155,7 @@ where
     let image_read_time = Instant::now();
 
     let (b_mat, matrix_a) = prepare_matrix(&mask, mu)?;
-    let b_mat = CsrMatrixF16::from_mat(b_mat, &gpu);
+    let b_mat = Arc::new(Mutex::new(CsrMatrixF16::from_mat(b_mat, &gpu)));
     let img_buffers = make_image_buffer_buffer(image, mask, matrix_a, &gpu);
 
     let matrix_generation_time = Instant::now();

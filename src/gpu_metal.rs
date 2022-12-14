@@ -5,6 +5,7 @@ use metal::*;
 use std::cmp::min;
 use std::ffi::c_void;
 use std::mem::size_of;
+use std::sync::{Arc, Mutex};
 
 const LIB: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -130,10 +131,7 @@ impl GpuLib {
     /// returns both the buffer and the copy command, call `wait`.
     pub fn private_buffer_f16(&self, data: &[f32]) -> (Buffer, &CommandBufferRef) {
         let buf_size = (size_of::<f16>() * data.len()) as u64;
-        let buf = data
-            .iter()
-            .map(|f| f16::from_f32(*f))
-            .collect::<Vec<_>>();
+        let buf = data.iter().map(|f| f16::from_f32(*f)).collect::<Vec<_>>();
         let buf = self.device.new_buffer_with_data(
             buf.as_ptr() as *const c_void,
             buf_size,
@@ -157,7 +155,7 @@ impl GpuLib {
 
     pub fn init_ag_argument(
         &self,
-        b_mat: &CsrMatrixF16,
+        b_mat: &Arc<Mutex<CsrMatrixF16>>,
         c: Buffer,
         layer: Buffer,
         mu: f32,
@@ -276,23 +274,26 @@ impl GpuLib {
         );
 
         encoder.set_argument_buffer(&argument_buffer, 0);
-        let data = [
-            x,                         // [[id(0)]]
-            x_tmp,                     // [[id(1)]]
-            x_old,                     // [[id(2)]]
-            y,                         // [[id(3)]]
-            grad_norm_squared,         // [[id(4)]]
-            dot,                       // [[id(5)]]
-            diff_squared,              // [[id(6)]]
-            alpha,                     // [[id(7)]]
-            beta,                      // [[id(8)]]
-            t,                         // [[id(9)]]
-            c,                         // [[id(10)]]
-            b_mat.row_offsets.clone(), // [[id(11)]]
-            b_mat.col_indices.clone(), // [[id(12)]]
-            b_mat.values.clone(),      // [[id(13)]]
-            layer,                     // [[id(14)]]
-        ];
+        let data = {
+            let b_mat = b_mat.lock().unwrap();
+            [
+                x,                         // [[id(0)]]
+                x_tmp,                     // [[id(1)]]
+                x_old,                     // [[id(2)]]
+                y,                         // [[id(3)]]
+                grad_norm_squared,         // [[id(4)]]
+                dot,                       // [[id(5)]]
+                diff_squared,              // [[id(6)]]
+                alpha,                     // [[id(7)]]
+                beta,                      // [[id(8)]]
+                t,                         // [[id(9)]]
+                c,                         // [[id(10)]]
+                b_mat.row_offsets.clone(), // [[id(11)]]
+                b_mat.col_indices.clone(), // [[id(12)]]
+                b_mat.values.clone(),      // [[id(13)]]
+                layer,                     // [[id(14)]]
+            ]
+        };
         encoder.set_buffers(
             0,
             data.iter()
@@ -306,7 +307,7 @@ impl GpuLib {
 
     pub fn init_cg_argument(
         &self,
-        b_mat: &CsrMatrixF16,
+        b_mat: &Arc<Mutex<CsrMatrixF16>>,
         c: Buffer,
         layer: Buffer,
         x: Buffer,
@@ -416,22 +417,25 @@ impl GpuLib {
             .new_buffer(c.length(), MTLResourceOptions::StorageModePrivate);
 
         encoder.set_argument_buffer(&argument_buffer, 0);
-        let data = [
-            r_new_norm_squared,        // [[id(0)]]
-            r_norm_squared,            // [[id(1)]]
-            dot,                       // [[id(2)]]
-            diff_squared,              // [[id(3)]]
-            alpha,                     // [[id(4)]]
-            beta,                      // [[id(5)]]
-            x,                         // [[id(6)]]
-            bp,                        // [[id(7)]]
-            p,                         // [[id(8)]]
-            c,                         // [[id(9)]]
-            b_mat.row_offsets.clone(), // [[id(10)]]
-            b_mat.col_indices.clone(), // [[id(11)]]
-            b_mat.values.clone(),      // [[id(12)]]
-            layer,                     // [[id(13)]]
-        ];
+        let data = {
+            let b_mat = b_mat.lock().unwrap();
+            [
+                r_new_norm_squared,        // [[id(0)]]
+                r_norm_squared,            // [[id(1)]]
+                dot,                       // [[id(2)]]
+                diff_squared,              // [[id(3)]]
+                alpha,                     // [[id(4)]]
+                beta,                      // [[id(5)]]
+                x,                         // [[id(6)]]
+                bp,                        // [[id(7)]]
+                p,                         // [[id(8)]]
+                c,                         // [[id(9)]]
+                b_mat.row_offsets.clone(), // [[id(10)]]
+                b_mat.col_indices.clone(), // [[id(11)]]
+                b_mat.values.clone(),      // [[id(12)]]
+                layer,                     // [[id(13)]]
+            ]
+        };
         encoder.set_buffers(
             0,
             data.iter()
