@@ -1,11 +1,9 @@
-if [ "$(uname -m)" == 'arm64' ]; then
-  build='cargo rustc --release -- -C target-cpu=native -C target-feature=+neon'
-else
-  build='cargo rustc --release -- -C target-cpu=native'
-fi
-
+build='cargo build --release'
 run='./target/release/smooth-image'
 
+xcrun --sdk macosx metal -ffast-math metal/ag_method.metal -c -o ./target/ag_method.air || exit
+xcrun --sdk macosx metal -ffast-math metal/cg_method.metal -c -o ./target/cg_method.air || exit
+xcrun --sdk macosx metallib ./target/ag_method.air ./target/cg_method.air -o ./metallib/gpu.metallib || exit
 $build || exit
 
 # problem (e)
