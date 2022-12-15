@@ -468,34 +468,25 @@ impl GpuLib {
         queue: &'a CommandQueue,
         size: u64,
     ) -> &'a CommandBufferRef {
-        let set_arg = |encoder: &ComputeCommandEncoderRef| {
-            encoder.set_buffer(0, Some(arg), 0);
-            encoder.use_resources(
-                &[
-                    &data[0], &data[1], &data[2], &data[3], &data[4], &data[5], &data[6], &data[7],
-                    &data[8], &data[9],
-                ],
-                MTLResourceUsage::Write | MTLResourceUsage::Read,
-            );
-            encoder.use_resources(
-                &[&data[10], &data[11], &data[12], &data[13]],
-                MTLResourceUsage::Read,
-            );
-        };
-
         let command = queue.new_command_buffer();
         let step_0 = command.new_compute_command_encoder();
         step_0.set_compute_pipeline_state(&self.cg_step_0_reset_alpha_beta);
-        set_arg(step_0);
+        step_0.set_buffer(0, Some(&arg), 0);
+        step_0.use_resource(&data[0], MTLResourceUsage::Read);
+        step_0.use_resource(&data[1], MTLResourceUsage::Read);
+        step_0.use_resource(&data[2], MTLResourceUsage::Read);
+        step_0.use_resource(&data[3], MTLResourceUsage::Read);
         step_0.dispatch_threads(MTLSize::new(1, 1, 1), MTLSize::new(1, 1, 1));
         step_0.end_encoding();
 
         let step_1 = command.new_compute_command_encoder();
         step_1.set_compute_pipeline_state(&self.cg_step_1_norm_squared2);
+        step_1.set_buffer(0, Some(&arg), 0);
         let max_threads = self
             .cg_step_1_norm_squared2
             .max_total_threads_per_threadgroup();
-        set_arg(step_1);
+        step_1.use_resource(&data[9], MTLResourceUsage::Read);
+        step_1.use_resource(&data[1], MTLResourceUsage::Read);
         step_1.dispatch_threads(
             MTLSize::new(size, 1, 1),
             MTLSize::new(min(max_threads, size), 1, 1),
@@ -505,7 +496,12 @@ impl GpuLib {
         let step_2 = command.new_compute_command_encoder();
         step_2.set_compute_pipeline_state(&self.cg_step_2_bp);
         let max_threads = self.cg_step_2_bp.max_total_threads_per_threadgroup();
-        set_arg(step_2);
+        step_2.set_buffer(0, Some(&arg), 0);
+        step_2.use_resource(&data[10], MTLResourceUsage::Read);
+        step_2.use_resource(&data[11], MTLResourceUsage::Read);
+        step_2.use_resource(&data[12], MTLResourceUsage::Read);
+        step_2.use_resource(&data[8], MTLResourceUsage::Read);
+        step_2.use_resource(&data[7], MTLResourceUsage::Write);
         step_2.dispatch_threads(
             MTLSize::new(size, 1, 1),
             MTLSize::new(min(max_threads, size), 1, 1),
@@ -515,7 +511,10 @@ impl GpuLib {
         let step_3_1 = command.new_compute_command_encoder();
         step_3_1.set_compute_pipeline_state(&self.cg_step_3_1_dot_pbp);
         let max_threads = self.cg_step_3_1_dot_pbp.max_total_threads_per_threadgroup();
-        set_arg(step_3_1);
+        step_3_1.set_buffer(0, Some(&arg), 0);
+        step_3_1.use_resource(&data[8], MTLResourceUsage::Read);
+        step_3_1.use_resource(&data[7], MTLResourceUsage::Read);
+        step_3_1.use_resource(&data[2], MTLResourceUsage::Read);
         step_3_1.dispatch_threads(
             MTLSize::new(size, 1, 1),
             MTLSize::new(min(max_threads, size), 1, 1),
@@ -524,14 +523,22 @@ impl GpuLib {
 
         let step_3_2 = command.new_compute_command_encoder();
         step_3_2.set_compute_pipeline_state(&self.cg_step_3_2_alpha);
-        set_arg(step_3_2);
+        step_3_2.set_buffer(0, Some(&arg), 0);
+        step_3_2.use_resource(&data[1], MTLResourceUsage::Read);
+        step_3_2.use_resource(&data[2], MTLResourceUsage::Read);
+        step_3_2.use_resource(&data[4], MTLResourceUsage::Write);
         step_3_2.dispatch_threads(MTLSize::new(1, 1, 1), MTLSize::new(1, 1, 1));
         step_3_2.end_encoding();
 
         let step_4 = command.new_compute_command_encoder();
         step_4.set_compute_pipeline_state(&self.cg_step_4_update_x);
+        step_4.set_buffer(0, Some(&arg), 0);
         let max_threads = self.cg_step_4_update_x.max_total_threads_per_threadgroup();
-        set_arg(step_4);
+        step_4.use_resource(&data[8], MTLResourceUsage::Read);
+        step_4.use_resource(&data[7], MTLResourceUsage::Read);
+        step_4.use_resource(&data[4], MTLResourceUsage::Read);
+        step_4.use_resource(&data[6], MTLResourceUsage::Write | MTLResourceUsage::Read);
+        step_4.use_resource(&data[9], MTLResourceUsage::Write | MTLResourceUsage::Read);
         step_4.dispatch_threads(
             MTLSize::new(size, 1, 1),
             MTLSize::new(min(max_threads, size), 1, 1),
@@ -540,10 +547,12 @@ impl GpuLib {
 
         let step_5_1 = command.new_compute_command_encoder();
         step_5_1.set_compute_pipeline_state(&self.cg_step_5_1_new_norm_squared2);
+        step_5_1.set_buffer(0, Some(&arg), 0);
         let max_threads = self
             .cg_step_5_1_new_norm_squared2
             .max_total_threads_per_threadgroup();
-        set_arg(step_5_1);
+        step_5_1.use_resource(&data[9], MTLResourceUsage::Read);
+        step_5_1.use_resource(&data[0], MTLResourceUsage::Read);
         step_5_1.dispatch_threads(
             MTLSize::new(size, 1, 1),
             MTLSize::new(min(max_threads, size), 1, 1),
@@ -552,14 +561,20 @@ impl GpuLib {
 
         let step_5_2 = command.new_compute_command_encoder();
         step_5_2.set_compute_pipeline_state(&self.cg_step_5_2_beta);
-        set_arg(step_5_2);
+        step_5_2.set_buffer(0, Some(&arg), 0);
+        step_5_2.use_resource(&data[0], MTLResourceUsage::Read);
+        step_5_2.use_resource(&data[1], MTLResourceUsage::Read);
+        step_5_2.use_resource(&data[5], MTLResourceUsage::Write);
         step_5_2.dispatch_threads(MTLSize::new(1, 1, 1), MTLSize::new(1, 1, 1));
         step_5_2.end_encoding();
 
         let step_6 = command.new_compute_command_encoder();
         step_6.set_compute_pipeline_state(&self.cg_step_6_update_p);
+        step_6.set_buffer(0, Some(&arg), 0);
         let max_threads = self.cg_step_6_update_p.max_total_threads_per_threadgroup();
-        set_arg(step_6);
+        step_6.use_resource(&data[5], MTLResourceUsage::Read);
+        step_6.use_resource(&data[8], MTLResourceUsage::Read);
+        step_6.use_resource(&data[9], MTLResourceUsage::Write | MTLResourceUsage::Read);
         step_6.dispatch_threads(
             MTLSize::new(size, 1, 1),
             MTLSize::new(min(max_threads, size), 1, 1),
@@ -568,10 +583,13 @@ impl GpuLib {
 
         let step_7 = command.new_compute_command_encoder();
         step_7.set_compute_pipeline_state(&self.cg_step_7_diff_squared);
+        step_7.set_buffer(0, Some(&arg), 0);
         let max_threads = self
             .cg_step_7_diff_squared
             .max_total_threads_per_threadgroup();
-        set_arg(step_7);
+        step_7.use_resource(&data[6], MTLResourceUsage::Read);
+        step_7.use_resource(&data[13], MTLResourceUsage::Read);
+        step_7.use_resource(&data[3], MTLResourceUsage::Read);
         step_7.dispatch_threads(
             MTLSize::new(size, 1, 1),
             MTLSize::new(min(max_threads, size), 1, 1),
