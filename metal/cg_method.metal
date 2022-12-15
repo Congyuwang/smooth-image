@@ -77,11 +77,12 @@ kernel void cg_step_3_1_dot_pbp(device CgMethodBuffers& buffers,
     atomic_fetch_add_explicit(buffers.dot, buffers.bp[index] * buffers.p[index], memory_order_relaxed);
 }
 
-// alpha = 1 / dot
+// alpha = ||r||2 / (p' * b * p)
 //
 // execute in 1 * 1 * 1
 kernel void cg_step_3_2_alpha(device CgMethodBuffers& buffers) {
-    *buffers.alpha = 1.0 / atomic_load_explicit(buffers.dot, memory_order_relaxed);
+    *buffers.alpha = atomic_load_explicit(buffers.r_norm_squared, memory_order_relaxed) /
+    atomic_load_explicit(buffers.dot, memory_order_relaxed);
 }
 
 // x = x + alpha * p
