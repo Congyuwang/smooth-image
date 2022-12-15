@@ -6,6 +6,7 @@ use metal::{Buffer, MTLResourceOptions};
 use std::mem::size_of;
 use std::slice;
 use std::sync::{Arc, Mutex};
+use crate::image_format::PX_MAX;
 
 /// f(x) = ||a * x - b ||^2 / 2 + mu / 2 * ||D * x||^2
 /// Df(x) = (A^T * A + mu * D^T * D) * x - A^T * b
