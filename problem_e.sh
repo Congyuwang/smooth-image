@@ -18,7 +18,7 @@ $run in-paint \
   -o test/test_outputs/problem-e-stars-cg.png \
   --algo cg \
   --init zero \
-  --tol 0.0001 \
+  --tol 0.001 \
   --mu 0.01 \
   --metric-step 10 \
   --mono
@@ -29,7 +29,7 @@ $run in-paint \
   -o test/test_outputs/problem-e-books-cg.png \
   --algo cg \
   --init zero \
-  --tol 0.0001 \
+  --tol 0.001 \
   --mu 0.01 \
   --metric-step 10 \
   --mono
@@ -40,7 +40,7 @@ $run in-paint \
   -o test/test_outputs/problem-e-husky-cg.png \
   --algo cg \
   --init zero \
-  --tol 0.0001 \
+  --tol 0.001 \
   --mu 0.01 \
   --metric-step 10 \
   --mono
@@ -53,7 +53,7 @@ $run in-paint \
   -o test/test_outputs/problem-e-stars-ag.png \
   --algo ag \
   --init zero \
-  --tol 0.0001 \
+  --tol 0.001 \
   --mu 0.01 \
   --metric-step 100 \
   --mono
@@ -64,7 +64,7 @@ $run in-paint \
   -o test/test_outputs/problem-e-books-ag.png \
   --algo ag \
   --init zero \
-  --tol 0.0001 \
+  --tol 0.001 \
   --mu 0.01 \
   --metric-step 100 \
   --mono
