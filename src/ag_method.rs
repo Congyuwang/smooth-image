@@ -41,7 +41,7 @@ fn ag_method_unchecked<CB: FnMut(i32, f32, f32)>(
         command.wait_until_completed();
 
         let grad_norm = unsafe { *(data[4].contents() as *mut f32) }.sqrt();
-        let diff_squared = unsafe { *(data[6].contents() as *mut f32) };
+        let diff_squared = unsafe { *(data[5].contents() as *mut f32) };
 
         // check return condition
         if grad_norm <= tol {
@@ -58,9 +58,9 @@ fn ag_method_unchecked<CB: FnMut(i32, f32, f32)>(
                 .copy_from_buffer(y_data, &new_y_buffer, cmd);
             cmd.commit();
             cmd.wait_until_completed();
-            let result = unsafe { slice::from_raw_parts(y_data.contents() as *const f16, size) }
+            let result = unsafe { slice::from_raw_parts(new_y_buffer.contents() as *const f16, size) }
                 .iter()
-                .map(|f| (f.to_f32() * 256.0f32) as u8)
+                .map(|f| (f.to_f32() * PX_MAX) as u8)
                 .collect::<Vec<_>>();
             return (result, iter_round);
         }
