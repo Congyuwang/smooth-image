@@ -7,6 +7,7 @@ use metal::{Buffer, MTLResourceOptions};
 use std::mem::size_of;
 use std::slice;
 use std::sync::{Arc, Mutex};
+use crate::image_format::PX_MAX;
 
 /// B_mat = A^T * A + mu * D^T * D
 /// c = A^T * b
@@ -59,9 +60,9 @@ fn cg_method_unchecked<CB: FnMut(i32, f32, f32)>(
                 .copy_from_buffer(x_data, &new_x_buffer, cmd);
             cmd.commit();
             cmd.wait_until_completed();
-            let result = unsafe { slice::from_raw_parts(x_data.contents() as *const f16, size) }
+            let result = unsafe { slice::from_raw_parts(new_x_buffer.contents() as *const f16, size) }
                 .iter()
-                .map(|f| (f.to_f32() * 256.0f32) as u8)
+                .map(|f| (f.to_f32() * PX_MAX) as u8)
                 .collect::<Vec<_>>();
             return (result, iter_round);
         }
